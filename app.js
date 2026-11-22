@@ -134,7 +134,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js?v=20261122b");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261122c");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -420,7 +420,7 @@ $("mute").onclick = () => {
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(); });
-  navigator.serviceWorker.register("sw.js?v=20261122b").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=20261122c").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
