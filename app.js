@@ -2,6 +2,7 @@
 const API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/task-api";
 const TZ = "Asia/Kolkata";
 const $ = (id) => document.getElementById(id);
+const NATIVE = !!(window.Android && window.Android.syncTasks); // running inside the Android app
 
 /* ---------- storage (token must also be readable by the service worker) ---------- */
 function idbSet(key, val) {
@@ -20,7 +21,7 @@ function idbSet(key, val) {
   });
 }
 const getToken = () => { try { return localStorage.getItem("token") || ""; } catch (e) { return ""; } };
-async function setToken(t) { try { localStorage.setItem("token", t); } catch (e) {} await idbSet("token", t); }
+async function setToken(t) { try { localStorage.setItem("token", t); } catch (e) {} await idbSet("token", t); if (NATIVE) { try { Android.setToken(t); } catch (e) {} } }
 
 /* ---------- api ---------- */
 async function api(action, extra) {
@@ -57,6 +58,7 @@ async function load() {
   try {
     const j = await api("list");
     pending = j.pending;
+    if (NATIVE) { try { Android.syncTasks(JSON.stringify(j.pending.map((t) => ({ id: t.id, title: t.title, due_at: t.due_at || "" })))); } catch (e) {} }
     render(j.pending, j.done);
     $("sub").textContent = `${j.pending.length} pending`;
     notice("");
@@ -220,6 +222,7 @@ async function answerCall() {
     s.tasks = ctx.pending;
     s.startedAt = Date.now();
     api("call_answered").catch(() => {}); // stops the retry ringing for this call
+    if (NATIVE) { try { Android.callStarted(); } catch (e) {} }
     s.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
     s.actx = new (window.AudioContext || window.webkitAudioContext)();
     await s.actx.resume();
@@ -349,6 +352,15 @@ function playChunk(s, b64) {
 // so this is a best-effort toggle.
 function applyRoute(s) {
   try { s.comp.disconnect(); } catch (e) {}
+  if (NATIVE) { // Android app: the OS does the real earpiece/speaker routing
+    s.gain.gain.value = s.speaker ? 3.5 : 1.2;
+    s.comp.connect(s.actx.destination);
+    try { Android.setSpeaker(!!s.speaker); } catch (e) {}
+    $("spkLbl").textContent = s.speaker ? "Speaker off" : "Speaker on";
+    $("spk").classList.toggle("spk-on", !!s.speaker);
+    $("spk").classList.toggle("spk-off", !s.speaker);
+    return;
+  }
   s.gain.gain.value = s.speaker ? 3.5 : 0.25; // clearly loud on speaker, clearly soft for the ear
   if (s.speaker) {
     s.comp.connect(s.streamDest);
@@ -393,7 +405,9 @@ function finishCall(clean) {
   const s = call; if (!s || s.ended) { closeCall(); return; }
   s.ended = true;
   // Cut within the first 25 s counts as "declined" (ring again: 1 min, then every 5 min). Anything still unresolved rings again too.
-  api("call_ended", { declined: Date.now() - (s.startedAt || 0) < 25000 }).catch(() => {});
+  const quickCut = Date.now() - (s.startedAt || 0) < 25000;
+  api("call_ended", { declined: quickCut }).catch(() => {});
+  if (NATIVE) { try { Android.callEnded(quickCut); } catch (e) {} }
   try { s.ws && s.ws.close(); } catch (e) {}
   try { s.mic && s.mic.getTracks().forEach((t) => t.stop()); } catch (e) {}
   try { s.node && s.node.disconnect(); } catch (e) {}
@@ -417,6 +431,26 @@ $("mute").onclick = () => {
   $("mute").style.opacity = call.muted ? ".5" : "1";
 };
 
+/* ---------- Android app: permissions card ---------- */
+function setupNativeCard() {
+  $("nativeCard").classList.remove("hidden");
+  $("enable").classList.add("hidden");
+  $("enableInfo").classList.add("hidden");
+  const refresh = () => {
+    let st = {}; try { st = JSON.parse(Android.status()); } catch (e) {}
+    const row = (ok, t) => (ok ? "✅ " : "❌ ") + t;
+    const ok = st.mic && st.notif && st.fullscreen && st.overlay && st.battery;
+    $("nativeInfo").textContent = [row(st.mic, "Microphone"), row(st.notif, "Notifications"), row(st.fullscreen, "Full-screen alerts"), row(st.overlay, "Display over other apps"), row(st.battery, "Battery: unrestricted")].join("\n")
+      + (st.nextAt ? "\nNext alarm: " + fmt(new Date(st.nextAt).toISOString()) : "") + (st.lastError ? "\nError: " + st.lastError : "");
+    $("fixBtn").classList.toggle("hidden", !!ok);
+  };
+  $("fixBtn").onclick = () => { Android.fixNext(); };
+  $("testBtn").onclick = () => { Android.testRing(); };
+  refresh();
+  document.addEventListener("visibilitychange", refresh);
+  setInterval(refresh, 4000);
+}
+
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(); });
@@ -426,8 +460,16 @@ if ("serviceWorker" in navigator) {
   if (!getToken()) { showPair(); return; }
   await idbSet("token", getToken());
   showMain();
+  if (NATIVE) { try { Android.setToken(getToken()); } catch (e) {} setupNativeCard(); }
   await load();
   updateEnableInfo();
-  if (new URLSearchParams(location.search).get("call") === "1") openIncoming();
+  const qp = new URLSearchParams(location.search);
+  if (NATIVE && qp.get("answer") === "1") {
+    // Answered on the Android incoming-call screen: tell the server what this call is about, then start talking.
+    let ids = []; try { ids = JSON.parse(qp.get("ids") || "[]"); } catch (e) {}
+    try { await api("set_last_call", { mode: qp.get("mode") || "task", ids }); } catch (e) {}
+    openIncoming();
+    answerCall();
+  } else if (qp.get("call") === "1") openIncoming();
   setInterval(() => { if (!call) load(); }, 60000);
 })();
