@@ -134,7 +134,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261122b");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -151,7 +151,7 @@ const TOOLS = [{
   functionDeclarations: [
     { name: "mark_done", description: "Mark a pending task as finished.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "reschedule", description: "Remind again for this task later. For relative times give minutes from now (fractions allowed: 25 seconds = 0.42). For a clock time (e.g. 5 pm) give due_at_iso as an ISO 8601 timestamp with +05:30 offset instead.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" }, minutes: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["task_id"] } },
-    { name: "add_task", description: "Add a new task. Optionally set when to remind: minutes_from_now (fractions allowed) or due_at_iso (ISO 8601 with +05:30).", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["title"] } },
+    { name: "add_task", description: "Add a new task. The title MUST be written in English (translate it if the user said it in Tamil). Optionally set when to remind: minutes_from_now (fractions allowed) or due_at_iso (ISO 8601 with +05:30).", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["title"] } },
     { name: "cancel_task", description: "Remove a task the user no longer needs.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
@@ -167,7 +167,7 @@ function systemPrompt(tasks, mode) {
 - If not finished -> ask when to remind again (or use the time they already said) and call reschedule, confirm the new time, say goodbye and call end_call.`
     : `This is the regular hourly check-in about everything still pending. Say "வணக்கம்", say how many tasks are pending, then go through them one at a time (at most 5, then summarise the rest). After each, wait for the user's answer.
 - When all are handled or the user says bye, say a brief goodbye and call end_call.`;
-  return `You are a warm, brisk personal reminder assistant on a phone call with the user. Speak ONLY in natural, colloquial Tamil (you may keep common English words like "task" or "meeting"). Keep every turn short: one or two sentences.
+  return `You are a warm, brisk personal reminder assistant on a phone call with the user. Speak ONLY in natural, colloquial Tamil (you may keep common English words like "task" or "meeting"). Task titles you save with add_task must always be in English, even though you speak Tamil. Keep every turn short: one or two sentences.
 Current time in India (IST, +05:30): ${istNowString()}.
 Tasks for this call:
 ${list}
@@ -419,7 +419,7 @@ $("mute").onclick = () => {
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(); });
-  navigator.serviceWorker.register("sw.js").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=20261122b").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
