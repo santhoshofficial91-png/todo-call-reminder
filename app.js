@@ -356,8 +356,11 @@ function applyRoute(s) {
     try { s.audioEl.pause(); } catch (e) {}
     s.comp.connect(s.actx.destination);
   }
-  $("spkLbl").textContent = s.speaker ? "ஸ்பீக்கர் ஆன்" : "ஸ்பீக்கர்";
-  $("spk").style.opacity = s.speaker ? "1" : ".6";
+  // Button shows the NEXT action: off state says "ஸ்பீக்கர் ஆன்" (dim); on state says "ஸ்பீக்கர் ஆஃப்" (bright, highlighted).
+  $("spkLbl").textContent = s.speaker ? "ஸ்பீக்கர் ஆஃப்" : "ஸ்பீக்கர் ஆன்";
+  $("spk").classList.toggle("spk-on", !!s.speaker);
+  $("spk").classList.toggle("spk-off", !s.speaker);
+  $("spk").setAttribute("aria-label", s.speaker ? "ஸ்பீக்கர் ஆஃப்" : "ஸ்பீக்கர் ஆன்");
 }
 function stopPlayback(s) {
   for (const src of s.sources) { try { src.stop(); } catch (e) {} }

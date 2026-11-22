@@ -52,6 +52,8 @@
   .cbtn{width:74px;height:74px;border-radius:50%;font-size:30px;display:flex;align-items:center;justify-content:center;padding:0}
   .cbtn.green{background:#16a34a}.cbtn.red{background:#dc2626}.cbtn.grey{background:rgba(255,255,255,.18)}
   .lbl{font-size:12px;opacity:.8;margin-top:6px}
+  .cbtn.spk-off{opacity:.45}
+  .cbtn.spk-on{background:#16a34a;opacity:1;box-shadow:0 0 0 4px rgba(255,255,255,.55)}
 </style>
 </head>
 <body>
@@ -100,7 +102,7 @@
     </div>
     <div class="btns hidden" id="active">
       <div><button class="cbtn grey" id="mute" aria-label="மியூட்">🎙</button><div class="lbl" id="muteLbl">மைக் ஆன்</div></div>
-      <div><button class="cbtn grey" id="spk" aria-label="ஸ்பீக்கர்">🔊</button><div class="lbl" id="spkLbl">ஸ்பீக்கர்</div></div>
+      <div><button class="cbtn grey spk-off" id="spk" aria-label="ஸ்பீக்கர் ஆன்">🔊</button><div class="lbl" id="spkLbl">ஸ்பீக்கர் ஆன்</div></div>
       <div><button class="cbtn red" id="hang" aria-label="முடி">⏹</button><div class="lbl">முடி</div></div>
     </div>
   </div>
