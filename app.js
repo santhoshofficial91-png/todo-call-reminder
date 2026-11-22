@@ -337,6 +337,7 @@ function playChunk(s, b64) {
 // so this is a best-effort toggle.
 function applyRoute(s) {
   try { s.comp.disconnect(); } catch (e) {}
+  s.gain.gain.value = s.speaker ? 3.0 : 0.8; // loud on speaker, soft for the ear
   if (s.speaker) {
     s.comp.connect(s.streamDest);
     s.audioEl.play().catch(() => {});
