@@ -253,9 +253,9 @@ async function answerCall() {
 
     // Output chain: boost volume, soft-limit, then route to ear (default) or loudspeaker.
     s.gain = s.actx.createGain();
-    s.gain.gain.value = 3.0;
+    s.gain.gain.value = 0.25;
     s.comp = s.actx.createDynamicsCompressor();
-    s.comp.threshold.value = -18; s.comp.knee.value = 12; s.comp.ratio.value = 6; s.comp.attack.value = 0.003; s.comp.release.value = 0.2;
+    s.comp.threshold.value = -3; s.comp.knee.value = 0; s.comp.ratio.value = 20; s.comp.attack.value = 0.002; s.comp.release.value = 0.1; // limiter only: keeps the loud/soft difference audible
     s.gain.connect(s.comp);
     s.streamDest = s.actx.createMediaStreamDestination();
     s.audioEl = new Audio();
@@ -348,7 +348,7 @@ function playChunk(s, b64) {
 // so this is a best-effort toggle.
 function applyRoute(s) {
   try { s.comp.disconnect(); } catch (e) {}
-  s.gain.gain.value = s.speaker ? 3.0 : 0.8; // loud on speaker, soft for the ear
+  s.gain.gain.value = s.speaker ? 3.5 : 0.25; // clearly loud on speaker, clearly soft for the ear
   if (s.speaker) {
     s.comp.connect(s.streamDest);
     s.audioEl.play().catch(() => {});
