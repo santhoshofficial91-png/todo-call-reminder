@@ -29,15 +29,15 @@ async function api(action, extra) {
     headers: { "content-type": "application/json", "x-app-token": getToken() },
     body: JSON.stringify(Object.assign({ action }, extra || {})),
   });
-  if (res.status === 401) { showPair(); throw new Error("இணைப்புக் குறியீடு தவறு"); }
+  if (res.status === 401) { showPair(); throw new Error("Wrong pairing code"); }
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(j.error || ("பிழை " + res.status));
+  if (!res.ok) throw new Error(j.error || ("Error " + res.status));
   return j;
 }
 
 /* ---------- helpers ---------- */
 function fmt(d) {
-  if (!d) return "நேரம் இல்லை";
+  if (!d) return "No time set";
   return new Date(d).toLocaleString("en-IN", { timeZone: TZ, day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
 }
 function el(tag, props, ...kids) {
@@ -58,7 +58,7 @@ async function load() {
     const j = await api("list");
     pending = j.pending;
     render(j.pending, j.done);
-    $("sub").textContent = `${j.pending.length} நிலுவையில்`;
+    $("sub").textContent = `${j.pending.length} pending`;
     notice("");
   } catch (e) { notice(e.message); }
 }
@@ -70,13 +70,13 @@ function taskCard(t, isDone) {
   chk.onchange = async () => { try { if (chk.checked) await api("done", { id: t.id }); else await api("reschedule", { id: t.id, minutes: 1 }); } catch (e) { notice(e.message); } load(); };
   const body = el("div", { className: "t" });
   body.append(el("div", { className: "title", textContent: t.title }));
-  body.append(el("div", { className: "meta", textContent: (late ? "⏰ தாமதம் · " : "") + (isDone ? "முடிந்தது" : fmt(t.due_at)) + (t.reschedule_count ? ` · ரீஷெடியூல் ×${t.reschedule_count}` : "") }));
+  body.append(el("div", { className: "meta", textContent: (late ? "⏰ Overdue · " : "") + (isDone ? "Done" : fmt(t.due_at)) + (t.reschedule_count ? ` · Rescheduled ×${t.reschedule_count}` : "") }));
   if (!isDone) {
     const acts = el("div", { className: "acts" });
-    for (const [label, mins] of [["+1 மணி", 60], ["+3 மணி", 180]]) {
+    for (const [label, mins] of [["+1 hr", 60], ["+3 hr", 180]]) {
       acts.append(el("button", { className: "ghost sm", textContent: label, onclick: async () => { try { await api("reschedule", { id: t.id, minutes: mins }); } catch (e) { notice(e.message); } load(); } }));
     }
-    acts.append(el("button", { className: "ghost sm", textContent: "நீக்கு", onclick: async () => { try { await api("cancel", { id: t.id }); } catch (e) { notice(e.message); } load(); } }));
+    acts.append(el("button", { className: "ghost sm", textContent: "Delete", onclick: async () => { try { await api("cancel", { id: t.id }); } catch (e) { notice(e.message); } load(); } }));
     body.append(acts);
   }
   box.append(chk, body);
@@ -85,9 +85,9 @@ function taskCard(t, isDone) {
 function render(p, d) {
   const root = $("lists");
   root.replaceChildren();
-  if (!p.length && !d.length) { root.append(el("div", { className: "empty", textContent: "வேலை எதுவும் இல்லை. மேலே சேர்க்கலாம் அல்லது 'AI-யோடு பேசு' அழுத்துங்க." })); return; }
-  if (p.length) { root.append(el("div", { className: "sec", textContent: `நிலுவை (${p.length})` })); p.forEach((t) => root.append(taskCard(t, false))); }
-  if (d.length) { root.append(el("div", { className: "sec", textContent: "சமீபத்தில் முடிந்தவை" })); d.forEach((t) => root.append(taskCard(t, true))); }
+  if (!p.length && !d.length) { root.append(el("div", { className: "empty", textContent: "No tasks yet. Add one above or tap 'Talk to AI'." })); return; }
+  if (p.length) { root.append(el("div", { className: "sec", textContent: `Pending (${p.length})` })); p.forEach((t) => root.append(taskCard(t, false))); }
+  if (d.length) { root.append(el("div", { className: "sec", textContent: "Recently done" })); d.forEach((t) => root.append(taskCard(t, true))); }
 }
 $("addBtn").onclick = async () => {
   const title = $("newTitle").value.trim(); if (!title) return;
@@ -116,17 +116,17 @@ const standalone = window.matchMedia("(display-mode: standalone)").matches || na
 async function updateEnableInfo() {
   const info = $("enableInfo");
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    info.textContent = isIOS && !standalone ? "iPhone: Safari-ல் Share → 'Add to Home Screen' செய்து அந்த ஐகானைத் திறங்க. அப்புறம் அலாரம் இயக்கலாம." : "இந்த உலாவி push-ஐ ஆதரிக்கவில்லை.";
+    info.textContent = isIOS && !standalone ? "iPhone: In Safari tap Share → 'Add to Home Screen', then open that icon. After that you can enable alerts." : "This browser does not support push notifications.";
     return;
   }
   if (Notification.permission === "granted") {
     const reg = await navigator.serviceWorker.getRegistration();
     const sub = reg && (await reg.pushManager.getSubscription());
-    info.textContent = sub ? "✅ அலாரம் இயக்கத்தில் உள்ளது" : "அனுமதி உள்ளது, ஆனால் இன்னும் இணைக்கவில்லை — மேலே அழுத்துங்க.";
+    info.textContent = sub ? "✅ Alerts are on" : "Permission granted but not connected yet — tap the button above.";
   } else if (Notification.permission === "denied") {
-    info.textContent = "Notification தடுக்கப்பட்டுள்ளது. உலாவி/ஃபோன் settings-ல் அனுமதியுங்க.";
+    info.textContent = "Notifications are blocked. Allow them in your browser/phone settings.";
   } else {
-    info.textContent = "ஒவ்வொரு மணி நேரமும் கால் அலாரம் வர இதை இயக்குங்க.";
+    info.textContent = "Turn this on to get call alerts every hour.";
   }
 }
 $("enable").onclick = async () => {
@@ -141,7 +141,7 @@ $("enable").onclick = async () => {
     if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(key) });
     await api("subscribe", { subscription: sub.toJSON() });
     updateEnableInfo();
-  } catch (e) { notice("அலாரம் இயக்க முடியவில்லை: " + e.message); }
+  } catch (e) { notice("Could not enable alerts: " + e.message); }
 };
 
 /* ---------- live voice call (Gemini Live API) ---------- */
@@ -212,7 +212,7 @@ async function answerCall() {
   $("call").classList.remove("ring");
   $("incoming").classList.add("hidden");
   $("active").classList.remove("hidden");
-  $("cstate").textContent = "இணைக்கிறது…";
+  $("cstate").textContent = "Connecting…";
   const s = (call = { ws: null, mic: null, actx: null, node: null, sources: new Set(), nextT: 0, muted: false, gotOut: false, ended: false, wake: null });
   try {
     const [tok, ctx] = await Promise.all([api("live_token"), api("call_context")]);
@@ -287,8 +287,8 @@ async function answerCall() {
       let m; try { m = JSON.parse(raw); } catch (e) { return; }
       handleServer(s, m);
     };
-    ws.onerror = () => { if (!s.ended) $("cstate").textContent = "இணைப்புப் பிழை"; };
-    ws.onclose = (e) => { if (!s.ended) { $("cstate").textContent = "அழைப்பு துண்டிக்கப்பட்டது" + (e.reason ? ": " + e.reason : ""); finishCall(false); } };
+    ws.onerror = () => { if (!s.ended) $("cstate").textContent = "Connection error"; };
+    ws.onclose = (e) => { if (!s.ended) { $("cstate").textContent = "Call disconnected" + (e.reason ? ": " + e.reason : ""); finishCall(false); } };
 
     s.node.port.onmessage = (e) => {
       if (s.muted || !s.ready || ws.readyState !== 1) return;
@@ -300,7 +300,7 @@ async function answerCall() {
       ws.send(JSON.stringify({ realtimeInput: { audio: { data: btoa(bin), mimeType: "audio/pcm;rate=16000" } } }));
     };
   } catch (e) {
-    $("cstate").textContent = "தொடங்க முடியவில்லை: " + (e.message || e);
+    $("cstate").textContent = "Could not start: " + (e.message || e);
     finishCall(false);
   }
 }
@@ -308,7 +308,7 @@ async function answerCall() {
 function handleServer(s, m) {
   if (m.setupComplete) {
     s.ready = true;
-    $("cstate").textContent = "பேசுங்கள் — நடுவில் குறுக்கிடலாம்";
+    $("cstate").textContent = "Speak — you can interrupt anytime";
     s.ws.send(JSON.stringify({ realtimeInput: { text: "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு." } }));
     setTimeout(() => { // fallback if the model ignores realtime text
       if (!s.gotOut && !s.ended && s.ws.readyState === 1) {
@@ -356,11 +356,11 @@ function applyRoute(s) {
     try { s.audioEl.pause(); } catch (e) {}
     s.comp.connect(s.actx.destination);
   }
-  // Button shows the NEXT action: off state says "ஸ்பீக்கர் ஆன்" (dim); on state says "ஸ்பீக்கர் ஆஃப்" (bright, highlighted).
-  $("spkLbl").textContent = s.speaker ? "ஸ்பீக்கர் ஆஃப்" : "ஸ்பீக்கர் ஆன்";
+  // Button shows the NEXT action: off state says "Speaker on" (dim); on state says "Speaker off" (bright, highlighted).
+  $("spkLbl").textContent = s.speaker ? "Speaker off" : "Speaker on";
   $("spk").classList.toggle("spk-on", !!s.speaker);
   $("spk").classList.toggle("spk-off", !s.speaker);
-  $("spk").setAttribute("aria-label", s.speaker ? "ஸ்பீக்கர் ஆஃப்" : "ஸ்பீக்கர் ஆன்");
+  $("spk").setAttribute("aria-label", s.speaker ? "Speaker off" : "Speaker on");
 }
 function stopPlayback(s) {
   for (const src of s.sources) { try { src.stop(); } catch (e) {} }
@@ -412,7 +412,7 @@ $("spk").onclick = () => { if (call && call.comp) { call.speaker = !call.speaker
 $("mute").onclick = () => {
   if (!call) return;
   call.muted = !call.muted;
-  $("muteLbl").textContent = call.muted ? "மைக் ஆஃப்" : "மைக் ஆன்";
+  $("muteLbl").textContent = call.muted ? "Mic off" : "Mic on";
   $("mute").style.opacity = call.muted ? ".5" : "1";
 };
 

@@ -8,8 +8,8 @@ self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener("push", (event) => {
   let d = null;
   try { d = event.data ? event.data.json() : null; } catch (e) { d = null; }
-  const title = (d && d.title) || "📞 நினைவூட்டல் கால்";
-  const body = (d && d.body) || "வேலைகள் பாக்கி உள்ளன. தட்டிப் பேசுங்கள்.";
+  const title = (d && d.title) || "📞 Reminder Call";
+  const body = (d && d.body) || "You have pending tasks. Tap to talk.";
   event.waitUntil(self.registration.showNotification(title, {
     body,
     tag: "reminder-call",

@@ -1,7 +1,7 @@
 {
-  "name": "நினைவூட்டல் கால்",
-  "short_name": "ரிமைண்டர்",
-  "description": "வேலைகளை நினைவூட்டும் AI குரல் உதவியாளர்",
+  "name": "Reminder Call",
+  "short_name": "Reminder",
+  "description": "AI voice assistant that reminds you of your tasks",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

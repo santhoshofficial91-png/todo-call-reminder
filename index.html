@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ta">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
-<title>நினைவூட்டல் கால்</title>
+<title>Reminder Call</title>
 <style>
   :root{--bg:#f4f6fa;--card:#fff;--ink:#101828;--mute:#667085;--line:#e4e7ec;--accent:#2563eb;--ok:#16a34a;--bad:#dc2626}
   @media (prefers-color-scheme:dark){:root{--bg:#0b0f17;--card:#141a26;--ink:#eef1f7;--mute:#98a2b3;--line:#232b3a;--accent:#6b9cff}}
@@ -19,7 +19,7 @@
   h1{font-size:20px;margin:4px 0 2px}
   .sub{color:var(--mute);font-size:13px;margin-bottom:12px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
-  input[type=text],input[type=datetime-local]{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
+  input[type=text],input[type=datetime-local]{width:100%;max-width:100%;min-width:0;min-height:46px;box-sizing:border-box;-webkit-appearance:none;appearance:none;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);font:inherit}
   button{font:inherit;border:0;border-radius:10px;padding:10px 14px;background:var(--accent);color:#fff;cursor:pointer}
   button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
   button.sm{padding:6px 10px;font-size:13px}
@@ -58,29 +58,29 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>நினைவூட்டல் கால் 📞</h1>
+  <h1>Reminder Call 📞</h1>
   <div class="sub" id="sub"></div>
   <div id="notice"></div>
 
   <!-- pairing -->
   <div class="card grid hidden" id="pair">
-    <div><b>முதல் முறை இணைப்பு</b></div>
-    <div class="meta">Claude சொன்ன இணைப்புக் குறியீட்டை (pairing code) உள்ளிடுங்க.</div>
-    <input type="text" id="code" placeholder="இணைப்புக் குறியீடு" autocapitalize="off" autocomplete="off">
-    <button id="pairBtn">இணை</button>
+    <div><b>First-time setup</b></div>
+    <div class="meta">Enter the pairing code Claude gave you.</div>
+    <input type="text" id="code" placeholder="Pairing code" autocapitalize="off" autocomplete="off">
+    <button id="pairBtn">Pair</button>
   </div>
 
   <div id="main" class="hidden">
     <div class="card grid">
-      <button class="big" id="talk">📞 AI-யோடு பேசு</button>
-      <button class="ghost" id="enable">🔔 அலாரம் (notification) இயக்கு</button>
+      <button class="big" id="talk">📞 Talk to AI</button>
+      <button class="ghost" id="enable">🔔 Enable alerts (notifications)</button>
       <div class="meta" id="enableInfo"></div>
     </div>
 
     <div class="card grid">
-      <input type="text" id="newTitle" placeholder="புதிய வேலை (எ.கா. பில் கட்டணும்)" maxlength="200">
+      <input type="text" id="newTitle" placeholder="New task (e.g. Pay the bill)" maxlength="200">
       <input type="datetime-local" id="newDue">
-      <button id="addBtn">சேர்</button>
+      <button id="addBtn">Add</button>
     </div>
 
     <div id="lists"></div>
@@ -101,9 +101,9 @@
       <div><button class="cbtn green" id="answer" aria-label="Answer">📞</button><div class="lbl">Answer</div></div>
     </div>
     <div class="btns hidden" id="active">
-      <div><button class="cbtn grey" id="mute" aria-label="மியூட்">🎙</button><div class="lbl" id="muteLbl">மைக் ஆன்</div></div>
-      <div><button class="cbtn grey spk-off" id="spk" aria-label="ஸ்பீக்கர் ஆன்">🔊</button><div class="lbl" id="spkLbl">ஸ்பீக்கர் ஆன்</div></div>
-      <div><button class="cbtn red" id="hang" aria-label="முடி">⏹</button><div class="lbl">முடி</div></div>
+      <div><button class="cbtn grey" id="mute" aria-label="Mute">🎙</button><div class="lbl" id="muteLbl">Mic on</div></div>
+      <div><button class="cbtn grey spk-off" id="spk" aria-label="Speaker on">🔊</button><div class="lbl" id="spkLbl">Speaker on</div></div>
+      <div><button class="cbtn red" id="hang" aria-label="End">⏹</button><div class="lbl">End</div></div>
     </div>
   </div>
 </div>
