@@ -249,6 +249,20 @@ async function answerCall() {
     s.node = new AudioWorkletNode(s.actx, "cap");
     s.actx.createMediaStreamSource(s.mic).connect(s.node);
 
+    // Output chain: boost volume, soft-limit, then route to ear (default) or loudspeaker.
+    s.gain = s.actx.createGain();
+    s.gain.gain.value = 3.0;
+    s.comp = s.actx.createDynamicsCompressor();
+    s.comp.threshold.value = -18; s.comp.knee.value = 12; s.comp.ratio.value = 6; s.comp.attack.value = 0.003; s.comp.release.value = 0.2;
+    s.gain.connect(s.comp);
+    s.streamDest = s.actx.createMediaStreamDestination();
+    s.audioEl = new Audio();
+    s.audioEl.srcObject = s.streamDest.stream;
+    s.audioEl.setAttribute("playsinline", "");
+    s.speaker = false;
+    try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch (e) {}
+    applyRoute(s);
+
     const wsUrl = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" + encodeURIComponent(tok.token);
     const ws = (s.ws = new WebSocket(wsUrl));
     ws.onopen = () => {
@@ -313,10 +327,25 @@ function playChunk(s, b64) {
   const buf = s.actx.createBuffer(1, n, 24000);
   buf.copyToChannel(f32, 0);
   const src = s.actx.createBufferSource();
-  src.buffer = buf; src.connect(s.actx.destination);
+  src.buffer = buf; src.connect(s.gain);
   const t = Math.max(s.actx.currentTime + 0.02, s.nextT);
   src.start(t); s.nextT = t + buf.duration;
   s.sources.add(src); src.onended = () => s.sources.delete(src);
+}
+// Ear mode: direct WebAudio output (phone-call style). Speaker mode: same audio through an <audio> element,
+// which most phones play on the loudspeaker. Phone browsers expose no official earpiece/speaker switch,
+// so this is a best-effort toggle.
+function applyRoute(s) {
+  try { s.comp.disconnect(); } catch (e) {}
+  if (s.speaker) {
+    s.comp.connect(s.streamDest);
+    s.audioEl.play().catch(() => {});
+  } else {
+    try { s.audioEl.pause(); } catch (e) {}
+    s.comp.connect(s.actx.destination);
+  }
+  $("spkLbl").textContent = s.speaker ? "ஸ்பீக்கர் ஆன்" : "ஸ்பீக்கர்";
+  $("spk").style.opacity = s.speaker ? "1" : ".6";
 }
 function stopPlayback(s) {
   for (const src of s.sources) { try { src.stop(); } catch (e) {} }
@@ -362,6 +391,7 @@ $("talk").onclick = () => openIncoming();
 $("answer").onclick = () => answerCall();
 $("decline").onclick = () => closeCall();
 $("hang").onclick = () => finishCall(true);
+$("spk").onclick = () => { if (call && call.comp) { call.speaker = !call.speaker; applyRoute(call); } };
 $("mute").onclick = () => {
   if (!call) return;
   call.muted = !call.muted;
