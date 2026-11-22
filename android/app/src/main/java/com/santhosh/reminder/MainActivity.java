@@ -40,7 +40,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
-        s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        s.setCacheMode(WebSettings.LOAD_NO_CACHE);
         wv.addJavascriptInterface(new Bridge(), "Android");
         wv.setWebViewClient(new WebViewClient());
         wv.setWebChromeClient(new WebChromeClient() {
@@ -79,7 +79,7 @@ public class MainActivity extends Activity {
     }
 
     void handle(Intent in) {
-        String url = BASE + "?native=1";
+        String url = BASE + "?native=1&t=" + System.currentTimeMillis(); // always fetch the newest page
         if (in != null && in.getBooleanExtra("answer", false)) {
             RingService.stop(this);
             Scheduler.clearRetry(this);
