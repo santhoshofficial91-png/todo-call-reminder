@@ -104,7 +104,7 @@ function showMain() { $("pair").classList.add("hidden"); $("main").classList.rem
 $("pairBtn").onclick = async () => {
   const c = $("code").value.trim(); if (!c) return;
   await setToken(c);
-  try { await api("summary"); showMain(); load(); updateEnableInfo(); } catch (e) { notice(e.message); }
+  try { await api("summary"); showMain(); if (NATIVE) { try { Android.setToken(getToken()); } catch (e) {} setupNativeCard(); } load(); updateEnableInfo(); } catch (e) { notice(e.message); }
 };
 
 function urlB64ToUint8(s) {
@@ -116,6 +116,7 @@ const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone;
 
 async function updateEnableInfo() {
+  if (NATIVE) return; // the Android app does not use browser push
   const info = $("enableInfo");
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
     info.textContent = isIOS && !standalone ? "iPhone: In Safari tap Share → 'Add to Home Screen', then open that icon. After that you can enable alerts." : "This browser does not support push notifications.";
@@ -433,6 +434,8 @@ $("mute").onclick = () => {
 
 /* ---------- Android app: permissions card ---------- */
 function setupNativeCard() {
+  if (window.__nativeCardReady) return;
+  window.__nativeCardReady = true;
   $("nativeCard").classList.remove("hidden");
   $("enable").classList.add("hidden");
   $("enableInfo").classList.add("hidden");
