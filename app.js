@@ -218,6 +218,8 @@ async function answerCall() {
     const [tok, ctx] = await Promise.all([api("live_token"), api("call_context")]);
     s.mode = ctx.mode;
     s.tasks = ctx.pending;
+    s.startedAt = Date.now();
+    api("call_answered").catch(() => {}); // stops the retry ringing for this call
     s.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
     s.actx = new (window.AudioContext || window.webkitAudioContext)();
     await s.actx.resume();
@@ -377,6 +379,8 @@ async function runTools(s, calls) {
 function finishCall(clean) {
   const s = call; if (!s || s.ended) { closeCall(); return; }
   s.ended = true;
+  // Cut within the first 25 s counts as "declined" (ring again: 1 min, then every 5 min). Anything still unresolved rings again too.
+  api("call_ended", { declined: Date.now() - (s.startedAt || 0) < 25000 }).catch(() => {});
   try { s.ws && s.ws.close(); } catch (e) {}
   try { s.mic && s.mic.getTracks().forEach((t) => t.stop()); } catch (e) {}
   try { s.node && s.node.disconnect(); } catch (e) {}
@@ -390,7 +394,7 @@ function finishCall(clean) {
 
 $("talk").onclick = () => openIncoming();
 $("answer").onclick = () => answerCall();
-$("decline").onclick = () => closeCall();
+$("decline").onclick = () => { api("call_ended", { declined: true }).catch(() => {}); closeCall(); };
 $("hang").onclick = () => finishCall(true);
 $("spk").onclick = () => { if (call && call.comp) { call.speaker = !call.speaker; applyRoute(call); } };
 $("mute").onclick = () => {
