@@ -309,12 +309,13 @@ function handleServer(s, m) {
   if (m.setupComplete) {
     s.ready = true;
     $("cstate").textContent = "Speak — you can interrupt anytime";
-    s.ws.send(JSON.stringify({ realtimeInput: { text: "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு." } }));
-    setTimeout(() => { // fallback if the model ignores realtime text
-      if (!s.gotOut && !s.ended && s.ws.readyState === 1) {
-        s.ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு." }] }], turnComplete: true } }));
-      }
-    }, 6000);
+    // Start the greeting immediately with a client turn. (The realtime-text kick-off was ignored by the model,
+    // so the greeting only began after the old 6s fallback timer.)
+    const kick = "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு.";
+    s.ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: kick }] }], turnComplete: true } }));
+    setTimeout(() => { // safety net if nothing was spoken
+      if (!s.gotOut && !s.ended && s.ws.readyState === 1) s.ws.send(JSON.stringify({ realtimeInput: { text: kick } }));
+    }, 4000);
   }
   const sc = m.serverContent;
   if (sc) {
