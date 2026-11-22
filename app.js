@@ -271,7 +271,10 @@ async function answerCall() {
       ws.send(JSON.stringify({
         setup: {
           model: "models/" + tok.model,
-          generationConfig: { responseModalities: ["AUDIO"] },
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Aoede" } } }, // fixed female voice
+          },
           systemInstruction: { parts: [{ text: systemPrompt(s.tasks, s.mode) }] },
           tools: TOOLS,
           inputAudioTranscription: {},
@@ -289,6 +292,9 @@ async function answerCall() {
 
     s.node.port.onmessage = (e) => {
       if (s.muted || !s.ready || ws.readyState !== 1) return;
+      // Loudspeaker echo gets picked up by the mic and the server treats it as the user interrupting,
+      // which cuts the voice. In speaker mode, stay quiet while the AI is speaking (plus a short tail).
+      if (s.speaker && s.actx.currentTime < s.nextT + 0.4) return;
       const bytes = new Uint8Array(e.data);
       let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
       ws.send(JSON.stringify({ realtimeInput: { audio: { data: btoa(bin), mimeType: "audio/pcm;rate=16000" } } }));
@@ -330,7 +336,10 @@ function playChunk(s, b64) {
   buf.copyToChannel(f32, 0);
   const src = s.actx.createBufferSource();
   src.buffer = buf; src.connect(s.gain);
-  const t = Math.max(s.actx.currentTime + 0.02, s.nextT);
+  if (s.actx.state !== "running") s.actx.resume().catch(() => {});
+  const now = s.actx.currentTime;
+  // If playback ran dry (late network chunks), restart with a small cushion so speech does not stutter.
+  const t = s.nextT > now ? s.nextT : now + 0.15;
   src.start(t); s.nextT = t + buf.duration;
   s.sources.add(src); src.onended = () => s.sources.delete(src);
 }
