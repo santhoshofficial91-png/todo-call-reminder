@@ -23,6 +23,7 @@ self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
     let body = "இன்னும் சில வேலைகள் பாக்கி உள்ளன. தட்டிப் பேசுங்கள்.";
     let n = 0;
+    let title = "";
     try {
       const token = await idbGet("token");
       if (token) {
@@ -33,14 +34,17 @@ self.addEventListener("push", (event) => {
         });
         const j = await r.json();
         n = (j.pending || []).length;
-        if (n) {
+        if (j.mode === "task" && n) {
+          title = "📞 நினைவூட்டல்: " + j.pending[0].title;
+          body = "இந்த வேலைக்கான நேரம் வந்துவிட்டது. தட்டிப் பேசுங்கள்.";
+        } else if (n) {
           body = j.pending.slice(0, 4).map((t) => "• " + t.title).join("\n") + (n > 4 ? `\n+${n - 4} மேலும்` : "");
         } else {
           body = "எல்லா வேலைகளும் முடிந்தன 🎉";
         }
       }
     } catch (e) { /* keep fallback text */ }
-    await self.registration.showNotification(`📞 நினைவூட்டல் கால் (${n} வேலை)`, {
+    await self.registration.showNotification(title || `📞 நினைவூட்டல் கால் (${n} வேலை)`, {
       body,
       tag: "reminder-call",
       renotify: true,

@@ -150,30 +150,36 @@ let call = null; // active session state
 const TOOLS = [{
   functionDeclarations: [
     { name: "mark_done", description: "Mark a pending task as finished.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
-    { name: "reschedule", description: "Remind again for this task after the given number of minutes from now.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" }, minutes: { type: "NUMBER" } }, required: ["task_id", "minutes"] } },
-    { name: "add_task", description: "Add a new task. Optionally remind after some minutes from now.", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" } }, required: ["title"] } },
+    { name: "reschedule", description: "Remind again for this task later. For relative times give minutes from now (fractions allowed: 25 seconds = 0.42). For a clock time (e.g. 5 pm) give due_at_iso as an ISO 8601 timestamp with +05:30 offset instead.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" }, minutes: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["task_id"] } },
+    { name: "add_task", description: "Add a new task. Optionally set when to remind: minutes_from_now (fractions allowed) or due_at_iso (ISO 8601 with +05:30).", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["title"] } },
     { name: "cancel_task", description: "Remove a task the user no longer needs.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
 
-function systemPrompt(tasks) {
+function systemPrompt(tasks, mode) {
   const list = tasks.length
     ? tasks.map((t, i) => `${i + 1}. id=${t.id} | ${t.title} | due: ${t.due_at ? fmt(t.due_at) : "no time"}`).join("\n")
     : "(no pending tasks)";
+  const flow = mode === "task"
+    ? `This is a reminder call for ONLY the task(s) listed below, whose time has just come. Say "வணக்கம்", tell the user it is time for that task, and ask if they have finished it. Do not talk about any other task unless the user brings it up.
+- If finished -> call mark_done, confirm briefly, say goodbye and call end_call.
+- If not finished -> ask when to remind again (or use the time they already said) and call reschedule, confirm the new time, say goodbye and call end_call.`
+    : `This is the regular hourly check-in about everything still pending. Say "வணக்கம்", say how many tasks are pending, then go through them one at a time (at most 5, then summarise the rest). After each, wait for the user's answer.
+- When all are handled or the user says bye, say a brief goodbye and call end_call.`;
   return `You are a warm, brisk personal reminder assistant on a phone call with the user. Speak ONLY in natural, colloquial Tamil (you may keep common English words like "task" or "meeting"). Keep every turn short: one or two sentences.
-Current time in India: ${istNowString()}.
-Pending tasks:
+Current time in India (IST, +05:30): ${istNowString()}.
+Tasks for this call:
 ${list}
 
-Call flow:
-- Greet in one line, say how many tasks are pending, then go through them one at a time (at most 5, then summarise the rest). After each, wait for the user's answer.
+${flow}
+
+General rules:
 - The user may interrupt at any moment. Drop what you were saying and react to what they said.
 - If the user says a task is finished -> call mark_done with that task's id, then confirm in a few words.
-- If they ask to be reminded later ("1 hour later", "after 30 minutes", "tomorrow") -> call reschedule with minutes (1 hour = 60, tomorrow = minutes until about 9am next day). Confirm the new time.
-- If they mention a new task -> call add_task. If they say they don't need one any more -> cancel_task.
-- Never read out the ids. Never invent tasks. If something is unclear, ask a short question.
-- When all tasks are handled or the user says bye, say a brief goodbye and call end_call.`;
+- If they ask to be reminded later -> call reschedule. Relative times: use minutes (1 hour = 60, 15 minutes = 15, 25 seconds = 0.42). Clock times ("5 o'clock evening", "tomorrow 9 am"): compute the exact ISO 8601 timestamp in IST (+05:30) from the current time above and pass due_at_iso. Always confirm the new time back to the user.
+- If they mention a new task -> call add_task (with a time if they gave one). If they no longer need a task -> cancel_task.
+- Never read out ids. Never invent tasks. If something is unclear, ask a short question.`;
 }
 
 function addCap(kind, text) {
@@ -209,8 +215,9 @@ async function answerCall() {
   $("cstate").textContent = "இணைக்கிறது…";
   const s = (call = { ws: null, mic: null, actx: null, node: null, sources: new Set(), nextT: 0, muted: false, gotOut: false, ended: false, wake: null });
   try {
-    const [tok, list] = await Promise.all([api("live_token"), api("list")]);
-    pending = list.pending;
+    const [tok, ctx] = await Promise.all([api("live_token"), api("call_context")]);
+    s.mode = ctx.mode;
+    s.tasks = ctx.pending;
     s.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
     s.actx = new (window.AudioContext || window.webkitAudioContext)();
     await s.actx.resume();
@@ -249,7 +256,7 @@ async function answerCall() {
         setup: {
           model: "models/" + tok.model,
           generationConfig: { responseModalities: ["AUDIO"] },
-          systemInstruction: { parts: [{ text: systemPrompt(pending) }] },
+          systemInstruction: { parts: [{ text: systemPrompt(s.tasks, s.mode) }] },
           tools: TOOLS,
           inputAudioTranscription: {},
           outputAudioTranscription: {},
@@ -280,10 +287,10 @@ function handleServer(s, m) {
   if (m.setupComplete) {
     s.ready = true;
     $("cstate").textContent = "பேசுங்கள் — நடுவில் குறுக்கிடலாம்";
-    s.ws.send(JSON.stringify({ realtimeInput: { text: "அழைப்பு தொடங்கிவிட்டது. வணக்கம் சொல்லி நிலுவை வேலைகளைச் சொல்லு." } }));
+    s.ws.send(JSON.stringify({ realtimeInput: { text: "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு." } }));
     setTimeout(() => { // fallback if the model ignores realtime text
       if (!s.gotOut && !s.ended && s.ws.readyState === 1) {
-        s.ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: "அழைப்பு தொடங்கிவிட்டது. வணக்கம் சொல்லி நிலுவை வேலைகளைச் சொல்லு." }] }], turnComplete: true } }));
+        s.ws.send(JSON.stringify({ clientContent: { turns: [{ role: "user", parts: [{ text: "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு." }] }], turnComplete: true } }));
       }
     }, 6000);
   }
@@ -324,8 +331,8 @@ async function runTools(s, calls) {
     let out = { ok: true };
     try {
       if (c.name === "mark_done") await api("done", { id: a.task_id });
-      else if (c.name === "reschedule") out = await api("reschedule", { id: a.task_id, minutes: Number(a.minutes) });
-      else if (c.name === "add_task") out = await api("add", { title: a.title, due_at: a.minutes_from_now ? new Date(Date.now() + Number(a.minutes_from_now) * 60000).toISOString() : null, source: "voice" });
+      else if (c.name === "reschedule") out = await api("reschedule", a.minutes != null && !a.due_at_iso ? { id: a.task_id, minutes: Number(a.minutes) } : { id: a.task_id, due_at: a.due_at_iso });
+      else if (c.name === "add_task") out = await api("add", { title: a.title, due_at: a.due_at_iso || (a.minutes_from_now ? new Date(Date.now() + Number(a.minutes_from_now) * 60000).toISOString() : null), source: "voice" });
       else if (c.name === "cancel_task") await api("cancel", { id: a.task_id });
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
