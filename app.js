@@ -200,7 +200,7 @@ function openIncoming() {
   $("incoming").classList.remove("hidden");
   $("active").classList.add("hidden");
   $("caps").replaceChildren();
-  $("cstate").textContent = "நினைவூட்டல் கால் வருகிறது…";
+  $("cstate").textContent = "Incoming call…";
   try { navigator.vibrate && navigator.vibrate([400, 200, 400, 200, 400]); } catch (e) {}
 }
 function closeCall() {
