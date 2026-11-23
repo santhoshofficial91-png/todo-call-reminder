@@ -53,7 +53,7 @@ public class Scheduler {
         } catch (Exception ignored) {}
     }
 
-    /** Start of the next IST hour (8..21) strictly after 'after'. */
+    /** Start of the next IST hour (9..21) strictly after 'after'. */
     static long nextHourly(long after) {
         Calendar cal = Calendar.getInstance(IST);
         cal.setTimeInMillis(after);
@@ -61,18 +61,18 @@ public class Scheduler {
         for (int i = 0; i < 30; i++) {
             cal.add(Calendar.HOUR_OF_DAY, 1);
             int h = cal.get(Calendar.HOUR_OF_DAY);
-            if (h >= 8 && h <= 21) return cal.getTimeInMillis();
+            if (h >= 9 && h <= 21) return cal.getTimeInMillis();
         }
         return after + 3600000L;
     }
 
-    /** Start of the current IST hour if it is an hourly slot (8..21), else -1. */
+    /** Start of the current IST hour if it is an hourly slot (9..21), else -1. */
     static long currentSlot(long now) {
         Calendar cal = Calendar.getInstance(IST);
         cal.setTimeInMillis(now);
         int h = cal.get(Calendar.HOUR_OF_DAY);
         cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
-        return (h >= 8 && h <= 21) ? cal.getTimeInMillis() : -1;
+        return (h >= 9 && h <= 21) ? cal.getTimeInMillis() : -1;
     }
 
     /** Set the single next system alarm (alarm-clock type: works through Doze and on the lock screen). */
@@ -151,15 +151,27 @@ public class Scheduler {
                 p(c).edit().putLong("retryAt", 0).apply(); // keeps retryN so the next gap is 5 min
                 ring(c, mode, rids, titlesFor(c, rids));
             }
-        } else if (slotDue && ts.length() > 0) {
+        } else if (slotDue && hourlyList(c, now).length() > 0) {
             ed.putInt("retryN", 0).putLong("retryAt", 0).apply();
-            JSONArray all = new JSONArray();
-            for (int i = 0; i < ts.length(); i++) all.put(ts.optJSONObject(i).optString("id"));
+            JSONArray all = hourlyList(c, now);
             ring(c, "hourly", all, titlesFor(c, all));
         } else {
             ed.apply();
         }
         schedule(c);
+    }
+
+    /** Hourly roll-call covers only tasks with no time or already due; tasks set for a later time ring at their own time. */
+    static JSONArray hourlyList(Context c, long now) {
+        JSONArray out = new JSONArray();
+        JSONArray ts = tasks(c);
+        for (int i = 0; i < ts.length(); i++) {
+            JSONObject t = ts.optJSONObject(i);
+            if (t == null) continue;
+            long due = parse(t.optString("due_at", ""));
+            if (due < 0 || due <= now + 30000L) out.put(t.optString("id"));
+        }
+        return out;
     }
 
     static JSONArray pendingOnly(Context c, String idsJson, String mode) {
@@ -169,7 +181,12 @@ public class Scheduler {
             JSONArray ts = tasks(c);
             for (int i = 0; i < want.length(); i++) {
                 for (int j = 0; j < ts.length(); j++) {
-                    if (ts.getJSONObject(j).optString("id").equals(want.getString(i))) { out.put(want.getString(i)); break; }
+                    JSONObject tj = ts.getJSONObject(j);
+                    if (tj.optString("id").equals(want.getString(i))) {
+                        long due = parse(tj.optString("due_at", ""));
+                        if (due < 0 || due <= System.currentTimeMillis() + 60000L) out.put(want.getString(i)); // rescheduled for later: no retry
+                        break;
+                    }
                 }
             }
         } catch (Exception ignored) {}

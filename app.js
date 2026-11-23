@@ -395,6 +395,7 @@ async function runTools(s, calls) {
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
     } catch (e) { out = { ok: false, error: String(e.message || e) }; }
+    if (out && out.ok !== false && (c.name === "mark_done" || c.name === "reschedule" || c.name === "cancel_task")) s.resolved = true;
     responses.push({ id: c.id, name: c.name, response: { output: out } });
   }
   if (s.ws && s.ws.readyState === 1) s.ws.send(JSON.stringify({ toolResponse: { functionResponses: responses } }));
@@ -406,7 +407,7 @@ function finishCall(clean) {
   const s = call; if (!s || s.ended) { closeCall(); return; }
   s.ended = true;
   // Cut within the first 25 s counts as "declined" (ring again: 1 min, then every 5 min). Anything still unresolved rings again too.
-  const quickCut = Date.now() - (s.startedAt || 0) < 25000;
+  const quickCut = !s.resolved && Date.now() - (s.startedAt || 0) < 25000; // a handled call is not a "missed" one
   api("call_ended", { declined: quickCut }).catch(() => {});
   if (NATIVE) { try { Android.callEnded(quickCut); } catch (e) {} }
   try { s.ws && s.ws.close(); } catch (e) {}
