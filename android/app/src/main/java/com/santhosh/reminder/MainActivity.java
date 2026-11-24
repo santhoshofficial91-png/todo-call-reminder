@@ -22,6 +22,7 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import android.location.Location;
 
 /** Hosts the existing web app (reminder UI + Gemini voice call) and bridges it to native alarms. */
 public class MainActivity extends Activity {
@@ -84,6 +85,7 @@ public class MainActivity extends Activity {
             RingService.stop(this);
             Scheduler.clearRetry(this);
             String mode = in.getStringExtra("mode");
+            if ("commute".equals(mode)) { Scheduler.commuteDone(this); Scheduler.schedule(this); }
             String ids = in.getStringExtra("ids");
             try {
                 url += "&answer=1&mode=" + Uri.encode(mode == null ? "task" : mode)
@@ -142,6 +144,13 @@ public class MainActivity extends Activity {
                 o.put("overlay", Settings.canDrawOverlays(MainActivity.this));
                 o.put("battery", hasBattery());
                 o.put("nextAt", Scheduler.p(MainActivity.this).getLong("nextAt", 0));
+                o.put("loc", Loc.granted(MainActivity.this));
+                o.put("locBg", Loc.background(MainActivity.this));
+                o.put("office", !Scheduler.p(MainActivity.this).getString("oLat", "").isEmpty());
+                o.put("home", !Scheduler.p(MainActivity.this).getString("hLat", "").isEmpty());
+                o.put("cEnabled", Scheduler.p(MainActivity.this).getBoolean("cEnabled", false));
+                o.put("cStart", Scheduler.p(MainActivity.this).getInt("cStart", 18 * 60));
+                o.put("cEnd", Scheduler.p(MainActivity.this).getInt("cEnd", 21 * 60));
                 o.put("lastError", Scheduler.p(MainActivity.this).getString("lastError", ""));
             } catch (Exception ignored) {}
             return o.toString();
@@ -167,6 +176,11 @@ public class MainActivity extends Activity {
                             startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + pkg)));
                         } else if (!hasBattery()) {
                             startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + pkg)));
+                        } else if (!Loc.granted(MainActivity.this)) {
+                            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, 3);
+                        } else if (!Loc.background(MainActivity.this)) {
+                            if (Build.VERSION.SDK_INT == 29) requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, 4);
+                            else startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg))); // Permissions > Location > Allow all the time
                         } else {
                             startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg)));
                         }
@@ -175,6 +189,47 @@ public class MainActivity extends Activity {
                     }
                 }
             });
+        }
+
+        /** Saves the current GPS position as "office" or "home". Result comes back through window.onLocSaved(kind, message). */
+        @JavascriptInterface
+        public void saveLocation(final String kind) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    String msg;
+                    try {
+                        Location l = Loc.current(MainActivity.this, 15000);
+                        if (l == null) {
+                            msg = Loc.granted(MainActivity.this) ? "Could not get a GPS fix. Go near a window and try again." : "Location permission is not allowed yet. Tap Fix permissions.";
+                        } else {
+                            String k = "home".equals(kind) ? "h" : "o";
+                            Scheduler.p(MainActivity.this).edit().putString(k + "Lat", String.valueOf(l.getLatitude())).putString(k + "Lng", String.valueOf(l.getLongitude())).apply();
+                            Scheduler.schedule(MainActivity.this);
+                            msg = "Saved (accuracy " + Math.round(l.getAccuracy()) + " m)";
+                        }
+                    } catch (Exception e) { msg = "Error: " + e; }
+                    final String m = msg;
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            wv.evaluateJavascript("window.onLocSaved && window.onLocSaved(" + JSONObject.quote(kind) + "," + JSONObject.quote(m) + ")", null);
+                        }
+                    });
+                }
+            }).start();
+        }
+
+        @JavascriptInterface
+        public void setCommute(boolean enabled, int startMin, int endMin) {
+            if (endMin < startMin) endMin = startMin;
+            Scheduler.p(MainActivity.this).edit().putBoolean("cEnabled", enabled).putInt("cStart", startMin).putInt("cEnd", endMin)
+                    .putString("cDone", "").putLong("lastCSlot", 0).apply();
+            Scheduler.schedule(MainActivity.this);
+        }
+
+        /** Rings the evening "leave the office?" call right now (ignores location). */
+        @JavascriptInterface
+        public void testCommute() {
+            Scheduler.ring(MainActivity.this, "commute", new JSONArray(), new JSONArray());
         }
 
         @JavascriptInterface

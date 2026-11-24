@@ -15,6 +15,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.time.OffsetDateTime;
 import java.util.Calendar;
+import android.location.Location;
 import java.util.TimeZone;
 
 /** All alarm logic lives here: what rings when, retries, and a best-effort refresh from the server. */
@@ -93,6 +94,7 @@ public class Scheduler {
         }
         long ra = p(c).getLong("retryAt", 0);
         if (ra > 0) next = Math.min(next, Math.max(ra, now + 1500));
+        next = Math.min(next, nextCommute(c, now));
 
         AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         Intent i = new Intent(c, AlarmReceiver.class);
@@ -106,6 +108,69 @@ public class Scheduler {
             try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pi); } catch (Exception ignored) {}
         }
         p(c).edit().putLong("nextAt", next).apply();
+    }
+
+    static String ymd(Calendar cal) {
+        return cal.get(Calendar.YEAR) + "-" + (cal.get(Calendar.MONTH) + 1) + "-" + cal.get(Calendar.DAY_OF_MONTH);
+    }
+
+    static boolean commuteReady(Context c) {
+        SharedPreferences sp = p(c);
+        return sp.getBoolean("cEnabled", false) && !sp.getString("oLat", "").isEmpty();
+    }
+
+    /** Next evening "leave the office?" check: every 15 min from the start time to the end time, once a day. */
+    static long nextCommute(Context c, long now) {
+        if (!commuteReady(c)) return Long.MAX_VALUE;
+        SharedPreferences sp = p(c);
+        int start = sp.getInt("cStart", 18 * 60), end = sp.getInt("cEnd", 21 * 60);
+        Calendar cal = Calendar.getInstance(IST);
+        cal.setTimeInMillis(now);
+        boolean doneToday = ymd(cal).equals(sp.getString("cDone", ""));
+        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+        long mid = cal.getTimeInMillis();
+        if (!doneToday) {
+            for (int m = start; m <= end; m += 15) {
+                long t = mid + m * 60000L;
+                if (t > now + 1000) return t;
+            }
+        }
+        return mid + 86400000L + start * 60000L;
+    }
+
+    /** Start of the current 15-minute evening-check slot, or -1 when outside the window / already done today. */
+    static long commuteSlot(Context c, long now) {
+        if (!commuteReady(c)) return -1;
+        SharedPreferences sp = p(c);
+        int start = sp.getInt("cStart", 18 * 60), end = sp.getInt("cEnd", 21 * 60);
+        Calendar cal = Calendar.getInstance(IST);
+        cal.setTimeInMillis(now);
+        if (ymd(cal).equals(sp.getString("cDone", ""))) return -1;
+        int mins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE);
+        if (mins < start - 1 || mins > end + 1) return -1;
+        int slot = start + Math.max(0, ((mins + 1 - start) / 15)) * 15;
+        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+        return cal.getTimeInMillis() + slot * 60000L;
+    }
+
+    static void commuteDone(Context c) {
+        Calendar cal = Calendar.getInstance(IST);
+        p(c).edit().putString("cDone", ymd(cal)).apply();
+    }
+
+    /** true = at the office, false = away, null = location unknown. Blocking (up to ~6 s). */
+    static Boolean atOffice(Context c) {
+        try {
+            SharedPreferences sp = p(c);
+            double lat = Double.parseDouble(sp.getString("oLat", ""));
+            double lng = Double.parseDouble(sp.getString("oLng", ""));
+            Location l = Loc.current(c, 6000);
+            if (l == null) return null;
+            float r = Math.max(250f, l.getAccuracy());
+            return Loc.meters(lat, lng, l.getLatitude(), l.getLongitude()) <= r;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** Called when the system alarm fires. Runs on a background thread. */
@@ -133,30 +198,54 @@ public class Scheduler {
         boolean slotDue = slot > 0 && slot > p(c).getLong("lastSlot", 0);
         long ra = p(c).getLong("retryAt", 0);
         boolean retryDue = ra > 0 && now >= ra - 2000;
+        long cSlot = commuteSlot(c, now);
+        boolean cDue = cSlot > 0 && cSlot > p(c).getLong("lastCSlot", 0);
 
         SharedPreferences.Editor ed = p(c).edit();
         ed.putString("rung", r.toString());
         if (slotDue) ed.putLong("lastSlot", slot);
+        ed.apply();
 
         if (ids.length() > 0) {
-            ed.putInt("retryN", 0).putLong("retryAt", 0).apply();
+            p(c).edit().putInt("retryN", 0).putLong("retryAt", 0).apply();
             ring(c, "task", ids, titles);
         } else if (retryDue) {
-            ed.apply();
             String mode = p(c).getString("retryMode", "task");
-            JSONArray rids = pendingOnly(c, p(c).getString("retryIds", "[]"), mode);
-            if (rids.length() == 0) {
-                p(c).edit().putLong("retryAt", 0).putInt("retryN", 0).apply();
+            if (mode.equals("commute")) {
+                Boolean at = atOffice(c);
+                if (at != null && !at) {
+                    p(c).edit().putLong("retryAt", 0).putInt("retryN", 0).apply(); // already left: no more calls
+                    commuteDone(c);
+                } else {
+                    p(c).edit().putLong("retryAt", 0).apply();
+                    ring(c, "commute", new JSONArray(p(c).getString("retryIds", "[]")), titlesFor(c, new JSONArray(p(c).getString("retryIds", "[]"))));
+                }
             } else {
-                p(c).edit().putLong("retryAt", 0).apply(); // keeps retryN so the next gap is 5 min
-                ring(c, mode, rids, titlesFor(c, rids));
+                JSONArray rids = pendingOnly(c, p(c).getString("retryIds", "[]"), mode);
+                if (rids.length() == 0) {
+                    p(c).edit().putLong("retryAt", 0).putInt("retryN", 0).apply();
+                } else {
+                    p(c).edit().putLong("retryAt", 0).apply(); // keeps retryN so the next gap is 5 min
+                    ring(c, mode, rids, titlesFor(c, rids));
+                }
             }
-        } else if (slotDue && hourlyList(c, now).length() > 0) {
-            ed.putInt("retryN", 0).putLong("retryAt", 0).apply();
-            JSONArray all = hourlyList(c, now);
-            ring(c, "hourly", all, titlesFor(c, all));
         } else {
-            ed.apply();
+            boolean hourlyReady = slotDue && hourlyList(c, now).length() > 0;
+            boolean cReady = false;
+            if (cDue) {
+                p(c).edit().putLong("lastCSlot", cSlot).apply();
+                Boolean at = atOffice(c);
+                cReady = at == null || at; // away = they have left, so no call
+            }
+            if (cReady) {
+                JSONArray hl = hourlyReady ? hourlyList(c, now) : new JSONArray();
+                p(c).edit().putInt("retryN", 0).putLong("retryAt", 0).apply();
+                ring(c, "commute", hl, titlesFor(c, hl));
+            } else if (hourlyReady) {
+                p(c).edit().putInt("retryN", 0).putLong("retryAt", 0).apply();
+                JSONArray all = hourlyList(c, now);
+                ring(c, "hourly", all, titlesFor(c, all));
+            }
         }
         schedule(c);
     }
@@ -220,8 +309,9 @@ public class Scheduler {
     /** Declined / missed / cut: ring again after 1 min, then every 5 min (up to 7 times; hourly up to 5). */
     static void scheduleRetry(Context c, String mode, String idsJson) {
         int n = p(c).getInt("retryN", 0) + 1;
-        int max = mode.equals("hourly") ? 5 : 7;
+        int max = mode.equals("hourly") ? 5 : (mode.equals("commute") ? 3 : 7);
         if (n > max) {
+            if (mode.equals("commute")) commuteDone(c);
             p(c).edit().putInt("retryN", 0).putLong("retryAt", 0).apply();
         } else {
             long gap = n == 1 ? 60000L : 300000L;
@@ -243,8 +333,8 @@ public class Scheduler {
         HttpURLConnection h = null;
         try {
             h = (HttpURLConnection) new URL(API).openConnection();
-            h.setConnectTimeout(4000);
-            h.setReadTimeout(5000);
+            h.setConnectTimeout(3000);
+            h.setReadTimeout(3000);
             h.setRequestMethod("POST");
             h.setRequestProperty("content-type", "application/json");
             h.setRequestProperty("x-app-token", token);

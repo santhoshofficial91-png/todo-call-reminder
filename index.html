@@ -82,6 +82,14 @@
       <div class="meta" id="nativeInfo" style="white-space:pre-line"></div>
       <button id="fixBtn" class="hidden">⚙️ Fix permissions</button>
       <button class="ghost" id="testBtn">🔔 Test call (rings now)</button>
+      <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px"><b>🌆 Evening call (leave the office)</b></div>
+      <div class="meta">Friday calls only while your phone is at the office. Once you have left, no call.</div>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cOn" style="width:20px;height:20px"> Evening call on</label>
+      <div style="display:flex;gap:8px;align-items:center"><span class="meta">From</span><input type="time" id="cFrom" value="18:00" style="flex:1"><span class="meta">to</span><input type="time" id="cTo" value="21:00" style="flex:1"></div>
+      <button class="ghost" id="setOffice">📍 Set office here (stand at the office)</button>
+      <button class="ghost" id="setHome">🏠 Set home here (when at home)</button>
+      <div class="meta" id="locMsg"></div>
+      <button class="ghost" id="testCommute">🌆 Test evening call</button>
     </div>
 
     <div class="card grid">
@@ -115,6 +123,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20261124d"></script>
+<script src="app.js?v=20261124e"></script>
 </body>
 </html>

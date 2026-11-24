@@ -166,7 +166,9 @@ function systemPrompt(tasks, mode) {
   const list = tasks.length
     ? tasks.map((t, i) => `${i + 1}. id=${t.id} | ${t.title} | due: ${t.due_at ? fmt(t.due_at) : "no time"}`).join("\n")
     : "(no pending tasks)";
-  const flow = mode === "task"
+  const flow = mode === "commute"
+    ? `This is the evening "time to head home" call. The phone's GPS says the user is still at the office. Say "வணக்கம்", say it is evening and ask whether they are ready to leave the office. Traffic information is NOT connected yet: if they ask about traffic or the best time, say honestly that you cannot check traffic yet. If they want to stay longer, ask for how long and call add_task titled "Leave office" with minutes_from_now, so they are reminded. If any tasks are listed below, mention in one short sentence how many are pending. Then say a brief goodbye and call end_call.`
+    : mode === "task"
     ? `This is a reminder call for ONLY the task(s) listed below, whose time has just come. Say "வணக்கம்", tell the user it is time for that task, and ask if they have finished it. Do not talk about any other task unless the user brings it up.
 - If finished -> call mark_done, confirm briefly, say goodbye and call end_call.
 - If not finished -> ask when to remind again (or use the time they already said) and call reschedule, confirm the new time, say goodbye and call end_call.`
@@ -222,7 +224,8 @@ async function answerCall() {
   const s = (call = { ws: null, mic: null, actx: null, node: null, sources: new Set(), nextT: 0, muted: false, gotOut: false, ended: false, wake: null });
   try {
     const [tok, ctx] = await Promise.all([api("live_token"), api("call_context")]);
-    s.mode = ctx.mode;
+    s.mode = window.__forceMode || ctx.mode;
+    window.__forceMode = null;
     s.tasks = ctx.pending;
     s.startedAt = Date.now();
     api("call_answered").catch(() => {}); // stops the retry ringing for this call
@@ -452,12 +455,21 @@ function setupNativeCard() {
   const refresh = () => {
     let st = {}; try { st = JSON.parse(Android.status()); } catch (e) {}
     const row = (ok, t) => (ok ? "✅ " : "❌ ") + t;
-    const ok = st.mic && st.notif && st.fullscreen && st.overlay && st.battery;
-    $("nativeInfo").textContent = [row(st.mic, "Microphone"), row(st.notif, "Notifications"), row(st.fullscreen, "Full-screen alerts"), row(st.overlay, "Display over other apps"), row(st.battery, "Battery: unrestricted")].join("\n")
+    const ok = st.mic && st.notif && st.fullscreen && st.overlay && st.battery && (!st.cEnabled || (st.loc && st.locBg));
+    $("nativeInfo").textContent = [row(st.mic, "Microphone"), row(st.notif, "Notifications"), row(st.fullscreen, "Full-screen alerts"), row(st.overlay, "Display over other apps"), row(st.battery, "Battery: unrestricted"), row(st.loc, "Location"), row(st.locBg, "Location: allow all the time"), row(st.office, "Office location saved"), row(st.home, "Home location saved")].join("\n")
       + (st.nextAt ? "\nNext alarm: " + fmt(new Date(st.nextAt).toISOString()) : "") + (st.lastError ? "\nError: " + st.lastError : "");
     $("fixBtn").classList.toggle("hidden", !!ok);
   };
   $("fixBtn").onclick = () => { Android.fixNext(); };
+  const toMin = (v) => { const [h, m] = String(v || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
+  const toStr = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+  try { const st0 = JSON.parse(Android.status()); $("cOn").checked = !!st0.cEnabled; $("cFrom").value = toStr(st0.cStart || 1080); $("cTo").value = toStr(st0.cEnd || 1260); } catch (e) {}
+  const saveCommute = () => { try { Android.setCommute($("cOn").checked, toMin($("cFrom").value), toMin($("cTo").value)); } catch (e) {} };
+  $("cOn").onchange = saveCommute; $("cFrom").onchange = saveCommute; $("cTo").onchange = saveCommute;
+  window.onLocSaved = (kind, msg) => { $("locMsg").textContent = (kind === "home" ? "Home: " : "Office: ") + msg; };
+  $("setOffice").onclick = () => { $("locMsg").textContent = "Getting your location…"; Android.saveLocation("office"); };
+  $("setHome").onclick = () => { $("locMsg").textContent = "Getting your location…"; Android.saveLocation("home"); };
+  $("testCommute").onclick = () => { Android.testCommute(); };
   $("testBtn").onclick = () => { Android.testRing(); };
   refresh();
   document.addEventListener("visibilitychange", refresh);
@@ -480,7 +492,8 @@ if ("serviceWorker" in navigator) {
   if (NATIVE && qp.get("answer") === "1") {
     // Answered on the Android incoming-call screen: tell the server what this call is about, then start talking.
     let ids = []; try { ids = JSON.parse(qp.get("ids") || "[]"); } catch (e) {}
-    try { await api("set_last_call", { mode: qp.get("mode") || "task", ids }); } catch (e) {}
+    if (qp.get("mode") === "commute") window.__forceMode = "commute";
+    else { try { await api("set_last_call", { mode: qp.get("mode") || "task", ids }); } catch (e) {} }
     openIncoming();
     answerCall();
   } else if (qp.get("call") === "1") openIncoming();
