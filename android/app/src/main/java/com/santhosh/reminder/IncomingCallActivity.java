@@ -60,10 +60,10 @@ public class IncomingCallActivity extends Activity {
         avatar.setBackground(ag);
         root.addView(avatar, new LinearLayout.LayoutParams(dp(130), dp(130)));
 
-        TextView who = text("Reminder AI Call", 28, Color.WHITE, true);
+        TextView who = text("Jarvis", 34, Color.WHITE, true);
         who.setPadding(0, dp(24), 0, dp(6));
         root.addView(who);
-        root.addView(text("Incoming reminder call…", 16, Color.parseColor("#cbd5e1"), false));
+        root.addView(text("Jarvis Calling…", 16, Color.parseColor("#cbd5e1"), false));
         TextView lbl = text(label, 22, Color.WHITE, true);
         lbl.setPadding(0, dp(28), 0, 0);
         root.addView(lbl);
