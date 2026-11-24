@@ -5,6 +5,7 @@ const MAPS_HEALTH_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/m
 const MEMORY_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/memory-api";
 const RECUR_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/recurring-api";
 const RECORDS_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/records-api";
+const CFO_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/cfo-api";
 const WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
@@ -175,6 +176,8 @@ const TOOLS = [{
     { name: "list_recurring_tasks", description: "List the user's repeating tasks with ids and next due time.", parameters: { type: "OBJECT", properties: {} } },
     { name: "delete_recurring_task", description: "Stop a repeating task by id (from list_recurring_tasks), after the user confirms.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" } }, required: ["id"] } },
     { name: "query_records", description: "Exact numbers about the user's own tasks and calls, computed by the database. topic: task_stats = counts of tasks created, completed and due between from and to (IST dates YYYY-MM-DD, default today), plus pending and overdue now and the most rescheduled pending tasks; task_search = find tasks by words in the title (optional status pending/done/cancelled, from, to, limit); call_stats = how many Friday calls were answered, declined or ended in the last N days. Never guess numbers; use this tool.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["task_stats", "task_search", "call_stats"] }, query: { type: "STRING" }, status: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, days: { type: "NUMBER" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
+    { name: "get_cfo_summary", description: "READ-ONLY business overview from Expert One. kind: summary = receivables (open dues with aging buckets), payables (pending and approved-not-paid payment requests, PO balance) and whether the data is fresh; aging = only the due-date buckets; alerts = recent business alerts raised; rules = current alert thresholds and whether alerts are on. Amounts are rupees; say lakh/crore. Receivables are what customers owe, not cash received. A cash-flow forecast is NOT available (no bank/cash data): say so if asked.", parameters: { type: "OBJECT", properties: { kind: { type: "STRING", enum: ["summary", "aging", "alerts", "rules"] } }, required: ["kind"] } },
+    { name: "set_alert_rules", description: "Change the automatic business alert settings: enabled (true/false), overdue_days (alert when a customer's dues are this many days overdue), min_overdue_inr (minimum total overdue rupees per customer), pending_payment_inr (alert when unpaid payment requests total at least this). Read the new values back and call this ONLY after the user clearly agrees.", parameters: { type: "OBJECT", properties: { enabled: { type: "BOOLEAN" }, overdue_days: { type: "NUMBER" }, min_overdue_inr: { type: "NUMBER" }, pending_payment_inr: { type: "NUMBER" } } } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -209,6 +212,7 @@ General rules:
 - If they mention a new task -> call add_task (with a time if they gave one). If they no longer need a task -> cancel_task.
 - Memory and notes: save ONLY when the user explicitly asks you to remember or note something (save_memory for facts and preferences, add_voice_note for dictated notes); never save on your own and never save passwords, PINs, OTPs, card numbers or keys. Confirm briefly after saving. To recall, call search_memory with the key words; if it finds nothing say so plainly, never guess. Delete only after the user clearly confirms.
 - Repeating tasks: when the user wants something to repeat (daily, weekly, monthly), read back the title, the repeat rule and the time in IST, and call add_recurring_task only after they agree. Day 29-31 monthly tasks use the last day of shorter months, say so when it applies. Use list_recurring_tasks / delete_recurring_task to show or stop them.
+- Business overview (CFO): for questions like how much is outstanding, what is overdue, how old the dues are, how much payment is waiting, call get_cfo_summary and answer in one or two short sentences with the key rupee figures in lakh/crore (top 2-3 numbers only). If data_fresh is false, say the Expert One data looks old. Never invent a cash-flow forecast. Business alerts are OFF until the owner turns them on: if the user wants them, first read out the current thresholds (get_cfo_summary rules), ask whether to keep or change them, then call set_alert_rules only after they agree. When alerts are on, a Friday call about a business alert is a normal task call: read the alert and offer to look up details.
 - Your own records: for questions like how many tasks were done today or this week, which tasks keep getting postponed, find a task, or how many calls were missed, call query_records and use its exact numbers; never estimate. If a pending task has been rescheduled many times (times_rescheduled 3 or more), you may gently ask once whether to do it now, move it to a firm time or cancel it. Set priority high in add_task only when the user says it is important or urgent.
 - Rain: if the user asks whether it will rain, call rain_check, then answer in one or two short sentences: the chance in percent and the time it is likely to start, and for which place. Say it is an hourly forecast, so exact minutes are not certain. Do not bring up rain unless asked.
 - Business questions (dues/outstanding, sales, purchase orders, payment requests, expenses, GRN, challans): call expert_query, then answer in one or two short sentences with the key numbers in rupees (say "lakh" or "crore" for big amounts, never read long lists, at most the top 3 names). It is read-only: if the user asks to change Expert One data, say you can only read it. If the tool says it is not connected, tell the user that in one sentence.
@@ -460,6 +464,12 @@ async function runTools(s, calls) {
         const res = await fetch(RECORDS_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({ action: topic }, rest)) });
         const j = await res.json().catch(() => ({}));
         out = res.ok ? j : { ok: false, error: j.error || "lookup failed" };
+      }
+      else if (c.name === "get_cfo_summary" || c.name === "set_alert_rules") {
+        const body = c.name === "set_alert_rules" ? Object.assign({ action: "rules_set" }, a) : { action: { summary: "summary", aging: "aging", alerts: "alerts_list", rules: "rules_get" }[a.kind] || "summary" };
+        const res = await fetch(CFO_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(body) });
+        const j = await res.json().catch(() => ({}));
+        out = res.ok ? j : { ok: false, error: res.status === 503 ? "Expert One is not connected" : (j.error || "lookup failed") };
       }
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
