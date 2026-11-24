@@ -1,5 +1,6 @@
 "use strict";
 const API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/task-api";
+const TRAFFIC_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/traffic-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
 const $ = (id) => document.getElementById(id);
@@ -158,6 +159,7 @@ const TOOLS = [{
     { name: "add_task", description: "Add a new task. The title MUST be written in English (translate it if the user said it in Tamil). Optionally set when to remind: minutes_from_now (fractions allowed) or due_at_iso (ISO 8601 with +05:30).", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["title"] } },
     { name: "cancel_task", description: "Remove a task the user no longer needs.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "expert_query", description: "Look up business data from the Expert One app (READ-ONLY). topic: outstanding = open customer dues; sales = sales minus credit notes; purchase_orders = POs with paid/balance; payment_requests = supplier payment requests; expenses = expense requests; grn = goods received notes; challans = delivery challans and packing slips. Optional filters: party (customer or supplier name text), sub (location/sub-group text), from and to (YYYY-MM-DD, IST), overdue_only (outstanding only), status (text, for payment_requests and expenses), limit (rows, max 15). Amounts are in rupees.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["outstanding", "sales", "purchase_orders", "payment_requests", "expenses", "grn", "challans"] }, party: { type: "STRING" }, sub: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, overdue_only: { type: "BOOLEAN" }, status: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
+    { name: "best_leave_time", description: "Check live Google Maps traffic for the drive from the office to home and find the best time to leave within the next 2 hours. Call it when the user asks about traffic or when to leave the office. Returns leave_now_minutes, best_time (IST HH:MM), best_minutes, minutes_saved_by_waiting and advice (leave_now or wait_until_best_time).", parameters: { type: "OBJECT", properties: {} } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -167,7 +169,7 @@ function systemPrompt(tasks, mode) {
     ? tasks.map((t, i) => `${i + 1}. id=${t.id} | ${t.title} | due: ${t.due_at ? fmt(t.due_at) : "no time"}`).join("\n")
     : "(no pending tasks)";
   const flow = mode === "commute"
-    ? `This is the evening "time to head home" call. The phone's GPS says the user is still at the office. Say "வணக்கம்", say it is evening and ask whether they are ready to leave the office. Traffic information is NOT connected yet: if they ask about traffic or the best time, say honestly that you cannot check traffic yet. If they want to stay longer, ask for how long and call add_task titled "Leave office" with minutes_from_now, so they are reminded. If any tasks are listed below, mention in one short sentence how many are pending. Then say a brief goodbye and call end_call.`
+    ? `This is the evening "time to head home" call. The phone's GPS says the user is still at the office. Say "வணக்கம்", say it is evening and ask whether they are ready to leave the office. Right away call best_leave_time. If advice is leave_now, say in Tamil that traffic is light and they can leave now, with the drive time in minutes. If advice is wait_until_best_time, say traffic is heavy now (minutes), that leaving at best_time takes best_minutes (saves minutes_saved_by_waiting) and offer a reminder: if they agree call add_task titled "Leave office" with minutes_from_now. If the tool returns an error, say in one sentence that traffic could not be checked and just ask if they are ready to leave. Say times are estimates only when giving a future time. If any tasks are listed below, mention in one short sentence how many are pending. Then say a brief goodbye and call end_call.`
     : mode === "task"
     ? `This is a reminder call for ONLY the task(s) listed below, whose time has just come. Say "வணக்கம்", tell the user it is time for that task, and ask if they have finished it. Do not talk about any other task unless the user brings it up.
 - If finished -> call mark_done, confirm briefly, say goodbye and call end_call.
@@ -404,6 +406,11 @@ async function runTools(s, calls) {
         const j = await res.json().catch(() => ({}));
         out = res.ok ? j : { ok: false, error: res.status === 503 ? "Expert One is not connected yet (key not added)" : (j.error || "lookup failed") };
       }
+      else if (c.name === "best_leave_time") {
+        const res = await fetch(TRAFFIC_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify({ action: "best_leave" }) });
+        const j = await res.json().catch(() => ({}));
+        out = res.ok && !j.error ? j : { ok: false, error: j.message || j.error || "traffic lookup failed" };
+      }
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
     } catch (e) { out = { ok: false, error: String(e.message || e) }; }
@@ -466,7 +473,9 @@ function setupNativeCard() {
   try { const st0 = JSON.parse(Android.status()); $("cOn").checked = !!st0.cEnabled; $("cFrom").value = toStr(st0.cStart || 1080); $("cTo").value = toStr(st0.cEnd || 1260); } catch (e) {}
   const saveCommute = () => { try { Android.setCommute($("cOn").checked, toMin($("cFrom").value), toMin($("cTo").value)); } catch (e) {} };
   $("cOn").onchange = saveCommute; $("cFrom").onchange = saveCommute; $("cTo").onchange = saveCommute;
-  window.onLocSaved = (kind, msg) => { $("locMsg").textContent = (kind === "home" ? "Home: " : "Office: ") + msg; };
+  const pushPlaces = () => { try { const pl = JSON.parse(Android.places()); if (pl.office || pl.home) fetch(TRAFFIC_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({ action: "set_places" }, pl)) }).catch(() => {}); } catch (e) {} };
+  pushPlaces();
+  window.onLocSaved = (kind, msg) => { $("locMsg").textContent = (kind === "home" ? "Home: " : "Office: ") + msg; if (/^Saved/.test(msg)) pushPlaces(); };
   $("setOffice").onclick = () => { $("locMsg").textContent = "Getting your location…"; Android.saveLocation("office"); };
   $("setHome").onclick = () => { $("locMsg").textContent = "Getting your location…"; Android.saveLocation("home"); };
   $("testCommute").onclick = () => { Android.testCommute(); };

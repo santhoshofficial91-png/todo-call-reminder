@@ -22,6 +22,7 @@ import android.webkit.WebViewClient;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import android.content.SharedPreferences;
 import android.location.Location;
 
 /** Hosts the existing web app (reminder UI + Gemini voice call) and bridges it to native alarms. */
@@ -216,6 +217,18 @@ public class MainActivity extends Activity {
                     });
                 }
             }).start();
+        }
+
+        /** Saved office/home coordinates as JSON, used to tell the server for traffic lookups. */
+        @JavascriptInterface
+        public String places() {
+            try {
+                SharedPreferences sp = Scheduler.p(MainActivity.this);
+                JSONObject o = new JSONObject();
+                if (!sp.getString("oLat", "").isEmpty()) o.put("office", new JSONObject().put("lat", Double.parseDouble(sp.getString("oLat", "0"))).put("lng", Double.parseDouble(sp.getString("oLng", "0"))));
+                if (!sp.getString("hLat", "").isEmpty()) o.put("home", new JSONObject().put("lat", Double.parseDouble(sp.getString("hLat", "0"))).put("lng", Double.parseDouble(sp.getString("hLng", "0"))));
+                return o.toString();
+            } catch (Exception e) { return "{}"; }
         }
 
         @JavascriptInterface
