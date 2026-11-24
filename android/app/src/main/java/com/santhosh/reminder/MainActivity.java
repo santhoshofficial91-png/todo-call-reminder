@@ -227,8 +227,59 @@ public class MainActivity extends Activity {
                 JSONObject o = new JSONObject();
                 if (!sp.getString("oLat", "").isEmpty()) o.put("office", new JSONObject().put("lat", Double.parseDouble(sp.getString("oLat", "0"))).put("lng", Double.parseDouble(sp.getString("oLng", "0"))));
                 if (!sp.getString("hLat", "").isEmpty()) o.put("home", new JSONObject().put("lat", Double.parseDouble(sp.getString("hLat", "0"))).put("lng", Double.parseDouble(sp.getString("hLng", "0"))));
+                o.put("routes", new org.json.JSONArray(sp.getString("routes", "[]")));
                 return o.toString();
             } catch (Exception e) { return "{}"; }
+        }
+
+        /** Appends the current GPS position as a named point on a named route (max 3 routes, 5 points). Callback window.onRouteSaved(message). */
+        @JavascriptInterface
+        public void addRoutePoint(final String route, final String point) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    String msg;
+                    try {
+                        Location l = Loc.current(MainActivity.this, 15000);
+                        if (l == null) {
+                            msg = Loc.granted(MainActivity.this) ? "Could not get a GPS fix. Go near an open area and try again." : "Location permission is not allowed yet.";
+                        } else {
+                            SharedPreferences sp = Scheduler.p(MainActivity.this);
+                            org.json.JSONArray rs = new org.json.JSONArray(sp.getString("routes", "[]"));
+                            JSONObject target = null;
+                            for (int i = 0; i < rs.length(); i++) if (route.equals(rs.getJSONObject(i).optString("name"))) target = rs.getJSONObject(i);
+                            if (target == null) {
+                                if (rs.length() >= 3) { target = null; }
+                                else { target = new JSONObject().put("name", route).put("points", new org.json.JSONArray()); rs.put(target); }
+                            }
+                            if (target == null) msg = "Only 3 routes allowed. Delete one first.";
+                            else {
+                                org.json.JSONArray pts = target.getJSONArray("points");
+                                if (pts.length() >= 5) msg = "Max 5 points per route.";
+                                else {
+                                    pts.put(new JSONObject().put("name", point).put("lat", l.getLatitude()).put("lng", l.getLongitude()));
+                                    sp.edit().putString("routes", rs.toString()).apply();
+                                    msg = "Saved '" + point + "' on " + route + " (accuracy " + Math.round(l.getAccuracy()) + " m)";
+                                }
+                            }
+                        }
+                    } catch (Exception e) { msg = "Error: " + e; }
+                    final String m = msg;
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() { wv.evaluateJavascript("window.onRouteSaved && window.onRouteSaved(" + JSONObject.quote(m) + ")", null); }
+                    });
+                }
+            }).start();
+        }
+
+        @JavascriptInterface
+        public void deleteRoute(String route) {
+            try {
+                SharedPreferences sp = Scheduler.p(MainActivity.this);
+                org.json.JSONArray rs = new org.json.JSONArray(sp.getString("routes", "[]"));
+                org.json.JSONArray out = new org.json.JSONArray();
+                for (int i = 0; i < rs.length(); i++) if (!route.equals(rs.getJSONObject(i).optString("name"))) out.put(rs.getJSONObject(i));
+                sp.edit().putString("routes", out.toString()).apply();
+            } catch (Exception ignored) {}
         }
 
         @JavascriptInterface
