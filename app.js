@@ -2,6 +2,8 @@
 const API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/task-api";
 const TRAFFIC_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/traffic-api";
 const MAPS_HEALTH_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/maps-health";
+const MEMORY_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/memory-api";
+const RECUR_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/recurring-api";
 const WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
@@ -164,6 +166,13 @@ const TOOLS = [{
     { name: "best_leave_time", description: "Check live Google Maps traffic for the drive from the office to home and find the best time to leave within the next 2 hours. Call it when the user asks about traffic or when to leave the office. Returns leave_now_minutes, best_time (IST HH:MM), best_minutes, minutes_saved_by_waiting and advice (leave_now or wait_until_best_time).", parameters: { type: "OBJECT", properties: {} } },
     { name: "rain_check", description: "Check the chance of rain for the user's saved places (office, home, and the points on their routes) over the next hours. Call it when the user asks whether it will rain, or about rain on the way. Returns a summary, plus per place max_chance_percent and first_likely_rain_time (IST). It is an hourly model forecast, not minute-level.", parameters: { type: "OBJECT", properties: { hours: { type: "NUMBER" } } } },
     { name: "maps_health", description: "Check whether the Google Maps traffic connection (Routes API key) works, and why not if it fails. Call it when the user asks whether traffic/maps is working. Returns ok, code, message and fix.", parameters: { type: "OBJECT", properties: {} } },
+    { name: "save_memory", description: "Save a fact, preference or commitment the user EXPLICITLY asked you to remember (for example 'remember this', 'ஞாபகம் வச்சுக்கோ'). Never save on your own. Never save passwords, PINs, OTPs, card numbers or keys.", parameters: { type: "OBJECT", properties: { content: { type: "STRING" }, title: { type: "STRING" } }, required: ["content"] } },
+    { name: "add_voice_note", description: "Save a dictated note or meeting decision that the user asked you to note down.", parameters: { type: "OBJECT", properties: { content: { type: "STRING" }, title: { type: "STRING" } }, required: ["content"] } },
+    { name: "search_memory", description: "Search the user's saved memories and notes by keywords (exact words, not meaning). Use when the user asks what they told you to remember, or what was said earlier. If nothing matches, say you found nothing; never guess.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["query"] } },
+    { name: "delete_memory", description: "Delete one saved memory or note by id (from search_memory). Only after the user clearly confirms the deletion.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" } }, required: ["id"] } },
+    { name: "add_recurring_task", description: "Create a repeating task. recurrence: daily, weekly or monthly. weekly needs weekday (0=Sunday..6=Saturday). monthly needs day_of_month (1-31; short months use the last day). time is HH:MM in IST (default 09:00). First read the details back to the user and call this only after they agree.", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, recurrence: { type: "STRING", enum: ["daily", "weekly", "monthly"] }, weekday: { type: "NUMBER" }, day_of_month: { type: "NUMBER" }, time: { type: "STRING" } }, required: ["title", "recurrence"] } },
+    { name: "list_recurring_tasks", description: "List the user's repeating tasks with ids and next due time.", parameters: { type: "OBJECT", properties: {} } },
+    { name: "delete_recurring_task", description: "Stop a repeating task by id (from list_recurring_tasks), after the user confirms.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" } }, required: ["id"] } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -196,6 +205,8 @@ General rules:
 - If the user says a task is finished -> call mark_done with that task's id, then confirm in a few words.
 - If they ask to be reminded later -> call reschedule. Relative times: use minutes (1 hour = 60, 15 minutes = 15, 25 seconds = 0.42). Clock times ("5 o'clock evening", "tomorrow 9 am"): compute the exact ISO 8601 timestamp in IST (+05:30) from the current time above and pass due_at_iso. Always confirm the new time back to the user.
 - If they mention a new task -> call add_task (with a time if they gave one). If they no longer need a task -> cancel_task.
+- Memory and notes: save ONLY when the user explicitly asks you to remember or note something (save_memory for facts and preferences, add_voice_note for dictated notes); never save on your own and never save passwords, PINs, OTPs, card numbers or keys. Confirm briefly after saving. To recall, call search_memory with the key words; if it finds nothing say so plainly, never guess. Delete only after the user clearly confirms.
+- Repeating tasks: when the user wants something to repeat (daily, weekly, monthly), read back the title, the repeat rule and the time in IST, and call add_recurring_task only after they agree. Day 29-31 monthly tasks use the last day of shorter months, say so when it applies. Use list_recurring_tasks / delete_recurring_task to show or stop them.
 - Rain: if the user asks whether it will rain, call rain_check, then answer in one or two short sentences: the chance in percent and the time it is likely to start, and for which place. Say it is an hourly forecast, so exact minutes are not certain. Do not bring up rain unless asked.
 - Business questions (dues/outstanding, sales, purchase orders, payment requests, expenses, GRN, challans): call expert_query, then answer in one or two short sentences with the key numbers in rupees (say "lakh" or "crore" for big amounts, never read long lists, at most the top 3 names). It is read-only: if the user asks to change Expert One data, say you can only read it. If the tool says it is not connected, tell the user that in one sentence.
 - Never read out ids. Never invent tasks. If something is unclear, ask a short question.`;
@@ -428,6 +439,18 @@ async function runTools(s, calls) {
       else if (c.name === "maps_health") {
         const res = await fetch(MAPS_HEALTH_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: "{}" });
         out = await res.json().catch(() => ({ ok: false, error: "health check failed" }));
+      }
+      else if (["save_memory", "add_voice_note", "search_memory", "delete_memory"].includes(c.name)) {
+        const map = { save_memory: { action: "save", kind: "memory" }, add_voice_note: { action: "save", kind: "note" }, search_memory: { action: "search" }, delete_memory: { action: "delete" } };
+        const res = await fetch(MEMORY_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({}, a, map[c.name])) });
+        const j = await res.json().catch(() => ({}));
+        out = res.ok ? j : { ok: false, error: j.error || "memory failed" };
+      }
+      else if (["add_recurring_task", "list_recurring_tasks", "delete_recurring_task"].includes(c.name)) {
+        const act = { add_recurring_task: "add", list_recurring_tasks: "list", delete_recurring_task: "delete" }[c.name];
+        const res = await fetch(RECUR_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({}, a, { action: act })) });
+        const j = await res.json().catch(() => ({}));
+        out = res.ok ? j : { ok: false, error: j.error || "recurring task failed" };
       }
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
