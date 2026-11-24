@@ -80,7 +80,7 @@ public class RingService extends Service {
 
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CH) : new Notification.Builder(this);
         b.setSmallIcon(android.R.drawable.sym_call_incoming)
-                .setContentTitle("Jarvis Calling")
+                .setContentTitle("Friday Calling")
                 .setContentText(label)
                 .setCategory(Notification.CATEGORY_CALL)
                 .setOngoing(true)
