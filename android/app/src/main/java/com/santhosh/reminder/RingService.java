@@ -120,6 +120,7 @@ public class RingService extends Service {
             if (mode.equals("hourly")) return t.length() + " tasks pending";
             if (mode.equals("commute")) return "Time to leave the office?";
             if (mode.equals("rain")) return "Rain expected soon";
+            if (mode.equals("maps")) return "Traffic check problem";
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < t.length() && i < 3; i++) { if (i > 0) sb.append(" • "); sb.append(t.getString(i)); }
             if (t.length() > 3) sb.append(" …");

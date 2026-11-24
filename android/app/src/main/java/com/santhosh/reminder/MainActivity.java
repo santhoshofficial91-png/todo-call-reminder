@@ -290,6 +290,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void testMaps() {
+            Scheduler.ring(MainActivity.this, "maps", new JSONArray(), new JSONArray());
+        }
+
+        @JavascriptInterface
         public void testRain() {
             Scheduler.ring(MainActivity.this, "rain", new JSONArray(), new JSONArray());
         }

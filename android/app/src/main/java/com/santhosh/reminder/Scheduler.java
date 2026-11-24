@@ -96,6 +96,7 @@ public class Scheduler {
         if (ra > 0) next = Math.min(next, Math.max(ra, now + 1500));
         next = Math.min(next, nextCommute(c, now));
         next = Math.min(next, nextRain(c, now));
+        next = Math.min(next, nextMaps(c, now));
 
         AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         Intent i = new Intent(c, AlarmReceiver.class);
@@ -109,6 +110,49 @@ public class Scheduler {
             try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pi); } catch (Exception ignored) {}
         }
         p(c).edit().putLong("nextAt", next).apply();
+    }
+
+    static final String MAPS_HEALTH_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/maps-health";
+
+    /** Daily 08:00 IST check that the Google traffic key still works (only when the evening call is on). */
+    static long nextMaps(Context c, long now) {
+        if (!p(c).getBoolean("cEnabled", false)) return Long.MAX_VALUE;
+        Calendar cal = Calendar.getInstance(IST);
+        cal.setTimeInMillis(now);
+        cal.set(Calendar.HOUR_OF_DAY, 8); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+        long t = cal.getTimeInMillis();
+        return t > now + 1000 ? t : t + 86400000L;
+    }
+
+    /** Returns the failure code (e.g. PERMISSION_DENIED) if the traffic key is broken, "" if fine or unknown. */
+    static String mapsBroken(Context c) {
+        HttpURLConnection h = null;
+        try {
+            String token = p(c).getString("token", "");
+            if (token.isEmpty()) return "";
+            h = (HttpURLConnection) new URL(MAPS_HEALTH_API).openConnection();
+            h.setConnectTimeout(4000);
+            h.setReadTimeout(8000);
+            h.setRequestMethod("POST");
+            h.setRequestProperty("content-type", "application/json");
+            h.setRequestProperty("x-app-token", token);
+            h.setDoOutput(true);
+            try (OutputStream os = h.getOutputStream()) { os.write("{}".getBytes("UTF-8")); }
+            if (h.getResponseCode() != 200) return "";
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            java.io.InputStream in = h.getInputStream();
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            JSONObject j = new JSONObject(bo.toString("UTF-8"));
+            if (j.optBoolean("ok", false)) return "";
+            String code = j.optString("code", "UNKNOWN");
+            return code.equals("NETWORK") ? "" : code; // a network blip is not worth a call
+        } catch (Exception e) {
+            return "";
+        } finally {
+            if (h != null) h.disconnect();
+        }
     }
 
     static final String WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
@@ -175,6 +219,13 @@ public class Scheduler {
         } finally {
             if (h != null) h.disconnect();
         }
+    }
+
+    static boolean nextMapsDue(Context c, long now) {
+        if (!p(c).getBoolean("cEnabled", false)) return false;
+        Calendar cal = Calendar.getInstance(IST);
+        cal.setTimeInMillis(now + 60000L);
+        return cal.get(Calendar.HOUR_OF_DAY) >= 8 && !ymd(cal).equals(p(c).getString("mapsDay", ""));
     }
 
     static String ymd(Calendar cal) {
@@ -314,6 +365,15 @@ public class Scheduler {
                 p(c).edit().putInt("retryN", 0).putLong("retryAt", 0).apply();
                 JSONArray all = hourlyList(c, now);
                 ring(c, "hourly", all, titlesFor(c, all));
+            } else if (nextMapsDue(c, now)) {
+                String bad = mapsBroken(c);
+                String last = p(c).getString("mapsBadCode", "");
+                String today = ymd(Calendar.getInstance(IST));
+                if (!bad.isEmpty() && !(last.equals(bad) && today.equals(p(c).getString("mapsBadDay", "")))) {
+                    p(c).edit().putString("mapsBadCode", bad).putString("mapsBadDay", today).apply();
+                    ring(c, "maps", new JSONArray(), new JSONArray());
+                }
+                p(c).edit().putString("mapsDay", today).apply();
             } else {
                 long rs = rainSlot(c, now);
                 if (rs > 0 && rs > p(c).getLong("lastRSlot", 0)) {
@@ -386,7 +446,7 @@ public class Scheduler {
 
     /** Declined / missed / cut: ring again after 1 min, then every 5 min (up to 7 times; hourly up to 5). */
     static void scheduleRetry(Context c, String mode, String idsJson) {
-        if (mode.equals("rain")) { schedule(c); return; } // rain alerts are not retried
+        if (mode.equals("rain") || mode.equals("maps")) { schedule(c); return; } // rain alerts are not retried
         int n = p(c).getInt("retryN", 0) + 1;
         int max = mode.equals("hourly") ? 5 : (mode.equals("commute") ? 3 : 7);
         if (n > max) {

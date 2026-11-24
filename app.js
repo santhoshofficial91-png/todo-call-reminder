@@ -1,6 +1,7 @@
 "use strict";
 const API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/task-api";
 const TRAFFIC_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/traffic-api";
+const MAPS_HEALTH_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/maps-health";
 const WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
@@ -162,6 +163,7 @@ const TOOLS = [{
     { name: "expert_query", description: "Look up business data from the Expert One app (READ-ONLY). topic: outstanding = open customer dues; sales = sales minus credit notes; purchase_orders = POs with paid/balance; payment_requests = supplier payment requests; expenses = expense requests; grn = goods received notes; challans = delivery challans and packing slips. Optional filters: party (customer or supplier name text), sub (location/sub-group text), from and to (YYYY-MM-DD, IST), overdue_only (outstanding only), status (text, for payment_requests and expenses), limit (rows, max 15). Amounts are in rupees.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["outstanding", "sales", "purchase_orders", "payment_requests", "expenses", "grn", "challans"] }, party: { type: "STRING" }, sub: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, overdue_only: { type: "BOOLEAN" }, status: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
     { name: "best_leave_time", description: "Check live Google Maps traffic for the drive from the office to home and find the best time to leave within the next 2 hours. Call it when the user asks about traffic or when to leave the office. Returns leave_now_minutes, best_time (IST HH:MM), best_minutes, minutes_saved_by_waiting and advice (leave_now or wait_until_best_time).", parameters: { type: "OBJECT", properties: {} } },
     { name: "rain_check", description: "Check the chance of rain for the user's saved places (office, home, and the points on their routes) over the next hours. Call it when the user asks whether it will rain, or about rain on the way. Returns a summary, plus per place max_chance_percent and first_likely_rain_time (IST). It is an hourly model forecast, not minute-level.", parameters: { type: "OBJECT", properties: { hours: { type: "NUMBER" } } } },
+    { name: "maps_health", description: "Check whether the Google Maps traffic connection (Routes API key) works, and why not if it fails. Call it when the user asks whether traffic/maps is working. Returns ok, code, message and fix.", parameters: { type: "OBJECT", properties: {} } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -170,7 +172,9 @@ function systemPrompt(tasks, mode) {
   const list = tasks.length
     ? tasks.map((t, i) => `${i + 1}. id=${t.id} | ${t.title} | due: ${t.due_at ? fmt(t.due_at) : "no time"}`).join("\n")
     : "(no pending tasks)";
-  const flow = mode === "rain"
+  const flow = mode === "maps"
+    ? `This is a short problem-report call. Right away call maps_health. Say "வணக்கம்", then in simple Tamil tell the user that the Google Maps traffic connection has stopped working, give the likely reason from the result (code and fix), and what they must do to fix it. The rain alert is NOT affected because it does not use Google. Answer a follow-up briefly, then say a short goodbye and call end_call. If the result says ok, say it is working fine now.`
+    : mode === "rain"
     ? `This is a short rain alert call. Right away call rain_check. Say "வணக்கம்", then in one or two short sentences say that rain is likely soon, with the chance in percent and the time it may start, and for which place, then tell them to take an umbrella or raincoat. Say it is an hourly forecast only if they ask. Answer a follow-up briefly, then say a short goodbye and call end_call.`
     : mode === "commute"
     ? `This is the evening "time to head home" call. The phone's GPS says the user is still at the office. Say "வணக்கம்", say it is evening and ask whether they are ready to leave the office. Right away call best_leave_time. It compares the saved routes; name the fastest route now, and mention a slow section (section_to, delay_minutes) only if one exists. If advice is leave_now, say in Tamil that traffic is light and they can leave now, with the drive time in minutes. If advice is wait_until_best_time, say traffic is heavy now (minutes), that leaving at best_time takes best_minutes (saves minutes_saved_by_waiting) and offer a reminder: if they agree call add_task titled "Leave office" with minutes_from_now. If the tool returns an error, say in one sentence that traffic could not be checked and just ask if they are ready to leave. Say times are estimates only when giving a future time. If any tasks are listed below, mention in one short sentence how many are pending. Then say a brief goodbye and call end_call.`
@@ -421,6 +425,10 @@ async function runTools(s, calls) {
         const j = await res.json().catch(() => ({}));
         out = res.ok && !j.error ? j : { ok: false, error: j.message || j.error || "weather lookup failed" };
       }
+      else if (c.name === "maps_health") {
+        const res = await fetch(MAPS_HEALTH_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: "{}" });
+        out = await res.json().catch(() => ({ ok: false, error: "health check failed" }));
+      }
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
     } catch (e) { out = { ok: false, error: String(e.message || e) }; }
@@ -484,6 +492,7 @@ function setupNativeCard() {
   try { $("rOn").checked = !!JSON.parse(Android.status()).rEnabled; } catch (e) {}
   $("rOn").onchange = () => { try { Android.setRain($("rOn").checked); } catch (e) {} };
   $("testRain").onclick = () => { Android.testRain(); };
+  $("testMaps").onclick = () => { Android.testMaps(); };
   const saveCommute = () => { try { Android.setCommute($("cOn").checked, toMin($("cFrom").value), toMin($("cTo").value)); } catch (e) {} };
   $("cOn").onchange = saveCommute; $("cFrom").onchange = saveCommute; $("cTo").onchange = saveCommute;
   const pushPlaces = () => { try { const pl = JSON.parse(Android.places()); if (pl.routes) pl.routes = pl.routes.map((rt) => ({ name: rt.name, points: (rt.points || []).slice().reverse() })); if (pl.office || pl.home || pl.routes) fetch(TRAFFIC_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({ action: "set_places" }, pl)) }).catch(() => {}); } catch (e) {} };
@@ -518,7 +527,7 @@ if ("serviceWorker" in navigator) {
   if (NATIVE && qp.get("answer") === "1") {
     // Answered on the Android incoming-call screen: tell the server what this call is about, then start talking.
     let ids = []; try { ids = JSON.parse(qp.get("ids") || "[]"); } catch (e) {}
-    if (qp.get("mode") === "commute" || qp.get("mode") === "rain") window.__forceMode = qp.get("mode");
+    if (["commute", "rain", "maps"].includes(qp.get("mode"))) window.__forceMode = qp.get("mode");
     else { try { await api("set_last_call", { mode: qp.get("mode") || "task", ids }); } catch (e) {} }
     openIncoming();
     answerCall();
