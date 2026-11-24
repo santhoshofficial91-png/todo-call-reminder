@@ -1,6 +1,7 @@
 "use strict";
 const API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/task-api";
 const TRAFFIC_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/traffic-api";
+const WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
 const $ = (id) => document.getElementById(id);
@@ -160,6 +161,7 @@ const TOOLS = [{
     { name: "cancel_task", description: "Remove a task the user no longer needs.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "expert_query", description: "Look up business data from the Expert One app (READ-ONLY). topic: outstanding = open customer dues; sales = sales minus credit notes; purchase_orders = POs with paid/balance; payment_requests = supplier payment requests; expenses = expense requests; grn = goods received notes; challans = delivery challans and packing slips. Optional filters: party (customer or supplier name text), sub (location/sub-group text), from and to (YYYY-MM-DD, IST), overdue_only (outstanding only), status (text, for payment_requests and expenses), limit (rows, max 15). Amounts are in rupees.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["outstanding", "sales", "purchase_orders", "payment_requests", "expenses", "grn", "challans"] }, party: { type: "STRING" }, sub: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, overdue_only: { type: "BOOLEAN" }, status: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
     { name: "best_leave_time", description: "Check live Google Maps traffic for the drive from the office to home and find the best time to leave within the next 2 hours. Call it when the user asks about traffic or when to leave the office. Returns leave_now_minutes, best_time (IST HH:MM), best_minutes, minutes_saved_by_waiting and advice (leave_now or wait_until_best_time).", parameters: { type: "OBJECT", properties: {} } },
+    { name: "rain_check", description: "Check the chance of rain for the user's saved places (office, home, and the points on their routes) over the next hours. Call it when the user asks whether it will rain, or about rain on the way. Returns a summary, plus per place max_chance_percent and first_likely_rain_time (IST). It is an hourly model forecast, not minute-level.", parameters: { type: "OBJECT", properties: { hours: { type: "NUMBER" } } } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -188,6 +190,7 @@ General rules:
 - If the user says a task is finished -> call mark_done with that task's id, then confirm in a few words.
 - If they ask to be reminded later -> call reschedule. Relative times: use minutes (1 hour = 60, 15 minutes = 15, 25 seconds = 0.42). Clock times ("5 o'clock evening", "tomorrow 9 am"): compute the exact ISO 8601 timestamp in IST (+05:30) from the current time above and pass due_at_iso. Always confirm the new time back to the user.
 - If they mention a new task -> call add_task (with a time if they gave one). If they no longer need a task -> cancel_task.
+- Rain: if the user asks whether it will rain, call rain_check, then answer in one or two short sentences: the chance in percent and the time it is likely to start, and for which place. Say it is an hourly forecast, so exact minutes are not certain. Do not bring up rain unless asked.
 - Business questions (dues/outstanding, sales, purchase orders, payment requests, expenses, GRN, challans): call expert_query, then answer in one or two short sentences with the key numbers in rupees (say "lakh" or "crore" for big amounts, never read long lists, at most the top 3 names). It is read-only: if the user asks to change Expert One data, say you can only read it. If the tool says it is not connected, tell the user that in one sentence.
 - Never read out ids. Never invent tasks. If something is unclear, ask a short question.`;
 }
@@ -410,6 +413,11 @@ async function runTools(s, calls) {
         const res = await fetch(TRAFFIC_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify({ action: "best_leave" }) });
         const j = await res.json().catch(() => ({}));
         out = res.ok && !j.error ? j : { ok: false, error: j.message || j.error || "traffic lookup failed" };
+      }
+      else if (c.name === "rain_check") {
+        const res = await fetch(WEATHER_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify({ hours: a.hours || 6 }) });
+        const j = await res.json().catch(() => ({}));
+        out = res.ok && !j.error ? j : { ok: false, error: j.message || j.error || "weather lookup failed" };
       }
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
