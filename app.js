@@ -4,6 +4,7 @@ const TRAFFIC_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/traff
 const MAPS_HEALTH_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/maps-health";
 const MEMORY_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/memory-api";
 const RECUR_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/recurring-api";
+const RECORDS_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/records-api";
 const WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
@@ -160,7 +161,7 @@ const TOOLS = [{
   functionDeclarations: [
     { name: "mark_done", description: "Mark a pending task as finished.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "reschedule", description: "Remind again for this task later. For relative times give minutes from now (fractions allowed: 25 seconds = 0.42). For a clock time (e.g. 5 pm) give due_at_iso as an ISO 8601 timestamp with +05:30 offset instead.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" }, minutes: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["task_id"] } },
-    { name: "add_task", description: "Add a new task. The title MUST be written in English (translate it if the user said it in Tamil). Optionally set when to remind: minutes_from_now (fractions allowed) or due_at_iso (ISO 8601 with +05:30).", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" }, due_at_iso: { type: "STRING" } }, required: ["title"] } },
+    { name: "add_task", description: "Add a new task. The title MUST be written in English (translate it if the user said it in Tamil). Optionally set when to remind: minutes_from_now (fractions allowed) or due_at_iso (ISO 8601 with +05:30).", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, minutes_from_now: { type: "NUMBER" }, due_at_iso: { type: "STRING" }, priority: { type: "STRING", enum: ["normal", "high"] } }, required: ["title"] } },
     { name: "cancel_task", description: "Remove a task the user no longer needs.", parameters: { type: "OBJECT", properties: { task_id: { type: "STRING" } }, required: ["task_id"] } },
     { name: "expert_query", description: "Look up business data from the Expert One app (READ-ONLY). topic: outstanding = open customer dues; sales = sales minus credit notes; purchase_orders = POs with paid/balance; payment_requests = supplier payment requests; expenses = expense requests; grn = goods received notes; challans = delivery challans and packing slips. Optional filters: party (customer or supplier name text), sub (location/sub-group text), from and to (YYYY-MM-DD, IST), overdue_only (outstanding only), status (text, for payment_requests and expenses), limit (rows, max 15). Amounts are in rupees.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["outstanding", "sales", "purchase_orders", "payment_requests", "expenses", "grn", "challans"] }, party: { type: "STRING" }, sub: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, overdue_only: { type: "BOOLEAN" }, status: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
     { name: "best_leave_time", description: "Check live Google Maps traffic for the drive from the office to home and find the best time to leave within the next 2 hours. Call it when the user asks about traffic or when to leave the office. Returns leave_now_minutes, best_time (IST HH:MM), best_minutes, minutes_saved_by_waiting and advice (leave_now or wait_until_best_time).", parameters: { type: "OBJECT", properties: {} } },
@@ -173,6 +174,7 @@ const TOOLS = [{
     { name: "add_recurring_task", description: "Create a repeating task. recurrence: daily, weekly or monthly. weekly needs weekday (0=Sunday..6=Saturday). monthly needs day_of_month (1-31; short months use the last day). time is HH:MM in IST (default 09:00). First read the details back to the user and call this only after they agree.", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, recurrence: { type: "STRING", enum: ["daily", "weekly", "monthly"] }, weekday: { type: "NUMBER" }, day_of_month: { type: "NUMBER" }, time: { type: "STRING" } }, required: ["title", "recurrence"] } },
     { name: "list_recurring_tasks", description: "List the user's repeating tasks with ids and next due time.", parameters: { type: "OBJECT", properties: {} } },
     { name: "delete_recurring_task", description: "Stop a repeating task by id (from list_recurring_tasks), after the user confirms.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" } }, required: ["id"] } },
+    { name: "query_records", description: "Exact numbers about the user's own tasks and calls, computed by the database. topic: task_stats = counts of tasks created, completed and due between from and to (IST dates YYYY-MM-DD, default today), plus pending and overdue now and the most rescheduled pending tasks; task_search = find tasks by words in the title (optional status pending/done/cancelled, from, to, limit); call_stats = how many Friday calls were answered, declined or ended in the last N days. Never guess numbers; use this tool.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["task_stats", "task_search", "call_stats"] }, query: { type: "STRING" }, status: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, days: { type: "NUMBER" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -207,6 +209,7 @@ General rules:
 - If they mention a new task -> call add_task (with a time if they gave one). If they no longer need a task -> cancel_task.
 - Memory and notes: save ONLY when the user explicitly asks you to remember or note something (save_memory for facts and preferences, add_voice_note for dictated notes); never save on your own and never save passwords, PINs, OTPs, card numbers or keys. Confirm briefly after saving. To recall, call search_memory with the key words; if it finds nothing say so plainly, never guess. Delete only after the user clearly confirms.
 - Repeating tasks: when the user wants something to repeat (daily, weekly, monthly), read back the title, the repeat rule and the time in IST, and call add_recurring_task only after they agree. Day 29-31 monthly tasks use the last day of shorter months, say so when it applies. Use list_recurring_tasks / delete_recurring_task to show or stop them.
+- Your own records: for questions like how many tasks were done today or this week, which tasks keep getting postponed, find a task, or how many calls were missed, call query_records and use its exact numbers; never estimate. If a pending task has been rescheduled many times (times_rescheduled 3 or more), you may gently ask once whether to do it now, move it to a firm time or cancel it. Set priority high in add_task only when the user says it is important or urgent.
 - Rain: if the user asks whether it will rain, call rain_check, then answer in one or two short sentences: the chance in percent and the time it is likely to start, and for which place. Say it is an hourly forecast, so exact minutes are not certain. Do not bring up rain unless asked.
 - Business questions (dues/outstanding, sales, purchase orders, payment requests, expenses, GRN, challans): call expert_query, then answer in one or two short sentences with the key numbers in rupees (say "lakh" or "crore" for big amounts, never read long lists, at most the top 3 names). It is read-only: if the user asks to change Expert One data, say you can only read it. If the tool says it is not connected, tell the user that in one sentence.
 - Never read out ids. Never invent tasks. If something is unclear, ask a short question.`;
@@ -418,7 +421,7 @@ async function runTools(s, calls) {
     try {
       if (c.name === "mark_done") await api("done", { id: a.task_id });
       else if (c.name === "reschedule") out = await api("reschedule", a.minutes != null && !a.due_at_iso ? { id: a.task_id, minutes: Number(a.minutes) } : { id: a.task_id, due_at: a.due_at_iso });
-      else if (c.name === "add_task") out = await api("add", { title: a.title, due_at: a.due_at_iso || (a.minutes_from_now ? new Date(Date.now() + Number(a.minutes_from_now) * 60000).toISOString() : null), source: "voice" });
+      else if (c.name === "add_task") out = await api("add", { title: a.title, priority: a.priority === "high" ? "high" : undefined, due_at: a.due_at_iso || (a.minutes_from_now ? new Date(Date.now() + Number(a.minutes_from_now) * 60000).toISOString() : null), source: "voice" });
       else if (c.name === "cancel_task") await api("cancel", { id: a.task_id });
       else if (c.name === "expert_query") {
         const { topic, ...rest } = a;
@@ -451,6 +454,12 @@ async function runTools(s, calls) {
         const res = await fetch(RECUR_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({}, a, { action: act })) });
         const j = await res.json().catch(() => ({}));
         out = res.ok ? j : { ok: false, error: j.error || "recurring task failed" };
+      }
+      else if (c.name === "query_records") {
+        const { topic, ...rest } = a;
+        const res = await fetch(RECORDS_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({ action: topic }, rest)) });
+        const j = await res.json().catch(() => ({}));
+        out = res.ok ? j : { ok: false, error: j.error || "lookup failed" };
       }
       else if (c.name === "end_call") hangup = true;
       else out = { ok: false, error: "unknown tool" };
