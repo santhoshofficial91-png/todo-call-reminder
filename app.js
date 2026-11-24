@@ -6,6 +6,7 @@ const MEMORY_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/memory
 const RECUR_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/recurring-api";
 const RECORDS_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/records-api";
 const CFO_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/cfo-api";
+const DASH_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/dashboard-api";
 const WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 const EXPERT_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/expert-read";
 const TZ = "Asia/Kolkata";
@@ -552,6 +553,86 @@ function setupNativeCard() {
   document.addEventListener("visibilitychange", refresh);
   setInterval(refresh, 4000);
 }
+
+
+/* ---------- Command Centre + Life dashboard ---------- */
+const money = (n) => (n == null ? "—" : n >= 10000000 ? "₹" + (n / 10000000).toFixed(2) + " Cr" : n >= 100000 ? "₹" + (n / 100000).toFixed(1) + " L" : "₹" + Math.round(n).toLocaleString("en-IN"));
+function tile(label, value, cls) { const t = el("div", { className: "tile" + (cls ? " " + cls : "") }); t.append(el("div", { className: "v", textContent: value == null ? "—" : String(value) }), el("div", { className: "l", textContent: label })); return t; }
+function group(title, note, tiles) { const g = el("div", { className: "grp" }); const h = el("h3", { textContent: title }); if (note) h.append(el("small", { textContent: note })); g.append(h); const w = el("div", { className: "tiles" }); tiles.forEach((t) => w.append(t)); g.append(w); return g; }
+async function dashCall(action) {
+  const res = await fetch(DASH_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify({ action }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || "dashboard failed");
+  return j;
+}
+function renderCommand(d) {
+  const root = $("tab-cc"); root.replaceChildren();
+  const qa = el("div", { className: "qa" });
+  qa.append(el("button", { textContent: "📞 Call Friday", onclick: () => $("talk").click() }));
+  qa.append(el("button", { className: "ghost", textContent: "➕ New task", onclick: () => { setTab("tasks"); $("newTitle").focus(); } }));
+  if (NATIVE) {
+    qa.append(el("button", { className: "ghost", textContent: "🔔 Test call", onclick: () => { try { Android.testRing(); } catch (e) {} } }));
+    qa.append(el("button", { className: "ghost", textContent: "🗺️ Check Maps", onclick: () => { try { Android.testMaps(); } catch (e) {} } }));
+  }
+  root.append(qa);
+  const c = d.core || {}, calls = c.calls_last_7_days || {};
+  root.append(group("🧠 Core", "updated " + (d.as_of_ist || "").slice(11), [
+    tile("Pending tasks", c.tasks_pending), tile("Overdue", c.tasks_overdue, c.tasks_overdue ? "warn" : ""),
+    tile("Done today", c.done_today, c.done_today ? "good" : ""), tile("High priority", c.high_priority_pending),
+    tile("Calls answered (7d)", calls.answered || 0), tile("Calls declined (7d)", calls.declined || 0),
+  ]));
+  const bz = d.business;
+  root.append(bz ? group("💼 Business (Expert One)", bz.data_fresh ? "data fresh" : "data looks old", [
+    tile("Open dues", money(bz.total_open)), tile("Overdue 30d+", money(bz.overdue_over_30_days), "warn"),
+    tile("Payments waiting", money(bz.unpaid_payment_requests)), tile("PO balance", money(bz.po_balance)),
+    tile("Alerts", bz.alerts_on ? "On" : "Off"), tile("Alerts (7d)", bz.alerts_last_7_days),
+  ]) : group("💼 Business (Expert One)", "not available", [tile("Status", "Not connected")]));
+  const t = d.travel || {};
+  root.append(group("🧭 Travel", "", [
+    tile("Office saved", t.office_saved ? "Yes" : "No", t.office_saved ? "good" : "warn"), tile("Home saved", t.home_saved ? "Yes" : "No", t.home_saved ? "good" : "warn"),
+    tile("Routes saved", t.routes_saved), tile("Traffic checks (month)", (t.traffic_requests_this_month ?? 0) + " / " + (t.traffic_safety_limit ?? "")),
+  ]));
+  root.append(group("⚙️ Automation", "", [tile("Repeating tasks", (d.automation || {}).recurring_tasks)]));
+  root.append(group("🌿 Life", "", [tile("Memories saved", (d.life || {}).memories_saved)]));
+  const pl = el("div", { className: "meta", textContent: "Not built yet (so not shown): Health, Finance, Family, Shopping, Bills, Vehicle, Goals, Diary. Hey-Friday wake word is not active." });
+  root.append(pl);
+}
+function renderLife(d) {
+  const root = $("tab-life"); root.replaceChildren();
+  const g1 = el("div", { className: "grp" }); g1.append(el("h3", { textContent: "📅 Today" }));
+  const due = (d.today || {}).due || [], nt = (d.today || {}).no_time_set || [];
+  if (!due.length && !nt.length) g1.append(el("div", { className: "meta", textContent: "Nothing due today." }));
+  due.forEach((x) => { const r = el("div", { className: "li" }); r.append(document.createTextNode((x.high ? "❗ " : "") + x.title + " "), el("small", { textContent: x.at })); g1.append(r); });
+  nt.forEach((x) => { const r = el("div", { className: "li" }); r.append(document.createTextNode((x.high ? "❗ " : "") + x.title + " "), el("small", { textContent: "no time" })); g1.append(r); });
+  root.append(g1);
+  const g2 = el("div", { className: "grp" }); g2.append(el("h3", { textContent: "✅ Done, last 7 days" }));
+  const days = d.done_last_7_days || [], mx = Math.max(1, ...days.map((x) => x.done));
+  const bars = el("div", { className: "bars" });
+  days.forEach((x) => { const c = el("div", {}); c.append(el("span", { textContent: String(x.done) }), el("i", { style: "height:" + Math.round((x.done / mx) * 46) + "px" }), el("span", { textContent: x.date.slice(8) })); bars.append(c); });
+  g2.append(bars); root.append(g2);
+  const listGroup = (title, items, fmtFn, empty) => { const g = el("div", { className: "grp" }); g.append(el("h3", { textContent: title })); if (!items.length) g.append(el("div", { className: "meta", textContent: empty })); items.forEach((x) => { const r = el("div", { className: "li" }); fmtFn(r, x); g.append(r); }); root.append(g); };
+  listGroup("🔁 Repeating tasks", d.upcoming_recurring || [], (r, x) => { r.append(document.createTextNode(x.title + " "), el("small", { textContent: x.repeats + " · next " + x.next })); }, "None yet. Ask Friday to repeat a task.");
+  listGroup("⏳ Often postponed", d.often_postponed || [], (r, x) => { r.append(document.createTextNode(x.title + " "), el("small", { textContent: "moved " + x.times + " times" })); }, "Nothing is being postponed a lot.");
+  listGroup("📝 Recent memories and notes", d.recent_memories || [], (r, x) => { r.append(document.createTextNode(x.text + " "), el("small", { textContent: x.kind + " · " + x.saved })); }, "Nothing saved yet. Tell Friday to remember something.");
+}
+let curTab = "tasks", dashTimer = null;
+async function refreshTab() {
+  try {
+    if (curTab === "cc") renderCommand(await dashCall("command"));
+    else if (curTab === "life") renderLife(await dashCall("life"));
+  } catch (e) { const r = $(curTab === "cc" ? "tab-cc" : "tab-life"); r.replaceChildren(el("div", { className: "empty", textContent: "Could not load: " + e.message })); }
+}
+function setTab(t) {
+  curTab = t;
+  for (const [k, id, btn] of [["tasks", "tab-tasks", "tabBtnTasks"], ["cc", "tab-cc", "tabBtnCc"], ["life", "tab-life", "tabBtnLife"]]) {
+    $(id).classList.toggle("hidden", k !== t); $(btn).classList.toggle("on", k === t);
+  }
+  clearInterval(dashTimer);
+  if (t !== "tasks") { refreshTab(); dashTimer = setInterval(() => { if (!call) refreshTab(); }, 60000); }
+}
+$("tabBtnTasks").onclick = () => setTab("tasks");
+$("tabBtnCc").onclick = () => setTab("cc");
+$("tabBtnLife").onclick = () => setTab("life");
 
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
