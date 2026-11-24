@@ -149,6 +149,7 @@ public class MainActivity extends Activity {
                 o.put("locBg", Loc.background(MainActivity.this));
                 o.put("office", !Scheduler.p(MainActivity.this).getString("oLat", "").isEmpty());
                 o.put("home", !Scheduler.p(MainActivity.this).getString("hLat", "").isEmpty());
+                o.put("rEnabled", Scheduler.p(MainActivity.this).getBoolean("rEnabled", false));
                 o.put("cEnabled", Scheduler.p(MainActivity.this).getBoolean("cEnabled", false));
                 o.put("cStart", Scheduler.p(MainActivity.this).getInt("cStart", 18 * 60));
                 o.put("cEnd", Scheduler.p(MainActivity.this).getInt("cEnd", 21 * 60));
@@ -280,6 +281,17 @@ public class MainActivity extends Activity {
                 for (int i = 0; i < rs.length(); i++) if (!route.equals(rs.getJSONObject(i).optString("name"))) out.put(rs.getJSONObject(i));
                 sp.edit().putString("routes", out.toString()).apply();
             } catch (Exception ignored) {}
+        }
+
+        @JavascriptInterface
+        public void setRain(boolean enabled) {
+            Scheduler.p(MainActivity.this).edit().putBoolean("rEnabled", enabled).putLong("lastRSlot", 0).apply();
+            Scheduler.schedule(MainActivity.this);
+        }
+
+        @JavascriptInterface
+        public void testRain() {
+            Scheduler.ring(MainActivity.this, "rain", new JSONArray(), new JSONArray());
         }
 
         @JavascriptInterface

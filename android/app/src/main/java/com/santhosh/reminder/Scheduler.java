@@ -95,6 +95,7 @@ public class Scheduler {
         long ra = p(c).getLong("retryAt", 0);
         if (ra > 0) next = Math.min(next, Math.max(ra, now + 1500));
         next = Math.min(next, nextCommute(c, now));
+        next = Math.min(next, nextRain(c, now));
 
         AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
         Intent i = new Intent(c, AlarmReceiver.class);
@@ -108,6 +109,72 @@ public class Scheduler {
             try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pi); } catch (Exception ignored) {}
         }
         p(c).edit().putLong("nextAt", next).apply();
+    }
+
+    static final String WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
+
+    /** Rain checks every 30 min between 07:00 and 21:00 IST when the rain alert is on. */
+    static long nextRain(Context c, long now) {
+        if (!p(c).getBoolean("rEnabled", false)) return Long.MAX_VALUE;
+        Calendar cal = Calendar.getInstance(IST);
+        cal.setTimeInMillis(now);
+        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+        long mid = cal.getTimeInMillis();
+        for (int m = 7 * 60; m <= 21 * 60; m += 30) {
+            long t = mid + m * 60000L;
+            if (t > now + 1000) return t;
+        }
+        return mid + 86400000L + 7 * 60 * 60000L;
+    }
+
+    static long rainSlot(Context c, long now) {
+        if (!p(c).getBoolean("rEnabled", false)) return -1;
+        Calendar cal = Calendar.getInstance(IST);
+        cal.setTimeInMillis(now + 60000L);
+        int mins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE);
+        if (mins < 7 * 60 || mins > 21 * 60) return -1;
+        int slot = mins / 30 * 30;
+        cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
+        return cal.getTimeInMillis() + slot * 60000L;
+    }
+
+    /** True when rain is likely (60%+) in the current or next forecast hour at the phone's place or a saved place. */
+    static boolean rainSoon(Context c) {
+        HttpURLConnection h = null;
+        try {
+            String token = p(c).getString("token", "");
+            if (token.isEmpty()) return false;
+            JSONObject body = new JSONObject().put("hours", 3);
+            Location l = Loc.current(c, 6000);
+            if (l != null) body.put("here", new JSONObject().put("lat", l.getLatitude()).put("lng", l.getLongitude()));
+            h = (HttpURLConnection) new URL(WEATHER_API).openConnection();
+            h.setConnectTimeout(4000);
+            h.setReadTimeout(6000);
+            h.setRequestMethod("POST");
+            h.setRequestProperty("content-type", "application/json");
+            h.setRequestProperty("x-app-token", token);
+            h.setDoOutput(true);
+            try (OutputStream os = h.getOutputStream()) { os.write(body.toString().getBytes("UTF-8")); }
+            if (h.getResponseCode() != 200) return false;
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            java.io.InputStream in = h.getInputStream();
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            JSONObject j = new JSONObject(bo.toString("UTF-8"));
+            JSONArray places = j.optJSONArray("places");
+            if (places == null) return false;
+            for (int i = 0; i < places.length(); i++) {
+                JSONArray hr = places.getJSONObject(i).optJSONArray("hourly");
+                if (hr == null) continue;
+                for (int k = 0; k < Math.min(2, hr.length()); k++) if (hr.getJSONObject(k).optInt("chance_percent", 0) >= 60) return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            if (h != null) h.disconnect();
+        }
     }
 
     static String ymd(Calendar cal) {
@@ -247,6 +314,15 @@ public class Scheduler {
                 p(c).edit().putInt("retryN", 0).putLong("retryAt", 0).apply();
                 JSONArray all = hourlyList(c, now);
                 ring(c, "hourly", all, titlesFor(c, all));
+            } else {
+                long rs = rainSlot(c, now);
+                if (rs > 0 && rs > p(c).getLong("lastRSlot", 0)) {
+                    p(c).edit().putLong("lastRSlot", rs).apply();
+                    if (now - p(c).getLong("lastRain", 0) > 3 * 3600000L && rainSoon(c)) {
+                        p(c).edit().putLong("lastRain", now).apply();
+                        ring(c, "rain", new JSONArray(), new JSONArray());
+                    }
+                }
             }
         }
         schedule(c);
@@ -310,6 +386,7 @@ public class Scheduler {
 
     /** Declined / missed / cut: ring again after 1 min, then every 5 min (up to 7 times; hourly up to 5). */
     static void scheduleRetry(Context c, String mode, String idsJson) {
+        if (mode.equals("rain")) { schedule(c); return; } // rain alerts are not retried
         int n = p(c).getInt("retryN", 0) + 1;
         int max = mode.equals("hourly") ? 5 : (mode.equals("commute") ? 3 : 7);
         if (n > max) {

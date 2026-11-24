@@ -170,7 +170,9 @@ function systemPrompt(tasks, mode) {
   const list = tasks.length
     ? tasks.map((t, i) => `${i + 1}. id=${t.id} | ${t.title} | due: ${t.due_at ? fmt(t.due_at) : "no time"}`).join("\n")
     : "(no pending tasks)";
-  const flow = mode === "commute"
+  const flow = mode === "rain"
+    ? `This is a short rain alert call. Right away call rain_check. Say "வணக்கம்", then in one or two short sentences say that rain is likely soon, with the chance in percent and the time it may start, and for which place, then tell them to take an umbrella or raincoat. Say it is an hourly forecast only if they ask. Answer a follow-up briefly, then say a short goodbye and call end_call.`
+    : mode === "commute"
     ? `This is the evening "time to head home" call. The phone's GPS says the user is still at the office. Say "வணக்கம்", say it is evening and ask whether they are ready to leave the office. Right away call best_leave_time. It compares the saved routes; name the fastest route now, and mention a slow section (section_to, delay_minutes) only if one exists. If advice is leave_now, say in Tamil that traffic is light and they can leave now, with the drive time in minutes. If advice is wait_until_best_time, say traffic is heavy now (minutes), that leaving at best_time takes best_minutes (saves minutes_saved_by_waiting) and offer a reminder: if they agree call add_task titled "Leave office" with minutes_from_now. If the tool returns an error, say in one sentence that traffic could not be checked and just ask if they are ready to leave. Say times are estimates only when giving a future time. If any tasks are listed below, mention in one short sentence how many are pending. Then say a brief goodbye and call end_call.`
     : mode === "task"
     ? `This is a reminder call for ONLY the task(s) listed below, whose time has just come. Say "வணக்கம்", tell the user it is time for that task, and ask if they have finished it. Do not talk about any other task unless the user brings it up.
@@ -479,6 +481,9 @@ function setupNativeCard() {
   const toMin = (v) => { const [h, m] = String(v || "0:0").split(":").map(Number); return (h || 0) * 60 + (m || 0); };
   const toStr = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
   try { const st0 = JSON.parse(Android.status()); $("cOn").checked = !!st0.cEnabled; $("cFrom").value = toStr(st0.cStart || 1080); $("cTo").value = toStr(st0.cEnd || 1260); } catch (e) {}
+  try { $("rOn").checked = !!JSON.parse(Android.status()).rEnabled; } catch (e) {}
+  $("rOn").onchange = () => { try { Android.setRain($("rOn").checked); } catch (e) {} };
+  $("testRain").onclick = () => { Android.testRain(); };
   const saveCommute = () => { try { Android.setCommute($("cOn").checked, toMin($("cFrom").value), toMin($("cTo").value)); } catch (e) {} };
   $("cOn").onchange = saveCommute; $("cFrom").onchange = saveCommute; $("cTo").onchange = saveCommute;
   const pushPlaces = () => { try { const pl = JSON.parse(Android.places()); if (pl.routes) pl.routes = pl.routes.map((rt) => ({ name: rt.name, points: (rt.points || []).slice().reverse() })); if (pl.office || pl.home || pl.routes) fetch(TRAFFIC_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({ action: "set_places" }, pl)) }).catch(() => {}); } catch (e) {} };
@@ -513,7 +518,7 @@ if ("serviceWorker" in navigator) {
   if (NATIVE && qp.get("answer") === "1") {
     // Answered on the Android incoming-call screen: tell the server what this call is about, then start talking.
     let ids = []; try { ids = JSON.parse(qp.get("ids") || "[]"); } catch (e) {}
-    if (qp.get("mode") === "commute") window.__forceMode = "commute";
+    if (qp.get("mode") === "commute" || qp.get("mode") === "rain") window.__forceMode = qp.get("mode");
     else { try { await api("set_last_call", { mode: qp.get("mode") || "task", ids }); } catch (e) {} }
     openIncoming();
     answerCall();

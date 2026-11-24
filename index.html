@@ -96,6 +96,10 @@
       <button class="ghost" id="addPoint">📍 Add point here</button>
       <div class="meta" id="routeMsg"></div>
       <div id="routeList"></div>
+      <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px"><b>🌧️ Rain alert</b></div>
+      <div class="meta">Checks every 30 min from 7 am to 9 pm. Friday calls when rain is likely (60%+) in the next hour or two. Hourly forecast, not minute-exact.</div>
+      <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rOn" style="width:20px;height:20px"> Rain alert on</label>
+      <button class="ghost" id="testRain">🌧️ Test rain alert</button>
       <button class="ghost" id="testCommute">🌆 Test evening call</button>
     </div>
 
@@ -130,6 +134,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20261124i"></script>
+<script src="app.js?v=20261124j"></script>
 </body>
 </html>
