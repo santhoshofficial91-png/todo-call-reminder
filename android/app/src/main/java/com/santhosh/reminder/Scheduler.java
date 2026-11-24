@@ -218,7 +218,9 @@ public class Scheduler {
                     commuteDone(c);
                 } else {
                     p(c).edit().putLong("retryAt", 0).apply();
-                    ring(c, "commute", new JSONArray(p(c).getString("retryIds", "[]")), titlesFor(c, new JSONArray(p(c).getString("retryIds", "[]"))));
+                    JSONArray cids = new JSONArray();
+                    try { cids = new JSONArray(p(c).getString("retryIds", "[]")); } catch (Exception ignored) {}
+                    ring(c, "commute", cids, titlesFor(c, cids));
                 }
             } else {
                 JSONArray rids = pendingOnly(c, p(c).getString("retryIds", "[]"), mode);
