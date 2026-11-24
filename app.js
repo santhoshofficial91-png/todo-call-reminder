@@ -88,7 +88,7 @@ function taskCard(t, isDone) {
 function render(p, d) {
   const root = $("lists");
   root.replaceChildren();
-  if (!p.length && !d.length) { root.append(el("div", { className: "empty", textContent: "No tasks yet. Add one above or tap 'Talk to AI'." })); return; }
+  if (!p.length && !d.length) { root.append(el("div", { className: "empty", textContent: "No tasks yet. Add one above or tap 'Call Friday'." })); return; }
   if (p.length) { root.append(el("div", { className: "sec", textContent: `Pending (${p.length})` })); p.forEach((t) => root.append(taskCard(t, false))); }
   if (d.length) { root.append(el("div", { className: "sec", textContent: "Recently done" })); d.forEach((t) => root.append(taskCard(t, true))); }
 }
