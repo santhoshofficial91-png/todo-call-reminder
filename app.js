@@ -539,12 +539,43 @@ function setupNativeCard() {
   const saveCommute = () => { try { Android.setCommute($("cOn").checked, toMin($("cFrom").value), toMin($("cTo").value)); } catch (e) {} };
   $("cOn").onchange = saveCommute; $("cFrom").onchange = saveCommute; $("cTo").onchange = saveCommute;
   const pushPlaces = () => { try { const pl = JSON.parse(Android.places()); if (pl.routes) pl.routes = pl.routes.map((rt) => ({ name: rt.name, points: (rt.points || []).slice().reverse() })); if (pl.office || pl.home || pl.routes) fetch(TRAFFIC_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(Object.assign({ action: "set_places" }, pl)) }).catch(() => {}); } catch (e) {} };
-  pushPlaces();
+  const PLACES_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/places-api";
+  const callPlaces = (body) => fetch(PLACES_API, { method: "POST", headers: { "content-type": "application/json", "x-app-token": getToken() }, body: JSON.stringify(body) }).then((r) => r.json());
+  // After a reinstall the phone is empty: restore from the server copy first, and only then push, so the server copy is never overwritten by an empty phone.
+  (async () => {
+    try {
+      const pl = JSON.parse(Android.places());
+      if (!pl.office || !pl.home || !(pl.routes || []).length) {
+        const sv = await callPlaces({ action: "get_places" });
+        if (sv && !sv.error) {
+          if (sv.routes) sv.routes = sv.routes.map((rt) => ({ name: rt.name, points: (rt.points || []).slice().reverse() }));
+          Android.restorePlaces(JSON.stringify(sv));
+        }
+      }
+    } catch (e) {}
+    pushPlaces();
+    try { drawRoutes(); } catch (e) {}
+  })();
   const drawRoutes = () => { try { const pl = JSON.parse(Android.places()); $("routeList").innerHTML = (pl.routes || []).map((rt) => "<div class=meta><b>" + rt.name + "</b>: " + (rt.points.map((q) => q.name).join(" → ") || "no points yet") + " <a href='#' data-del='" + rt.name.replace(/'/g, "") + "'>delete</a></div>").join("") || "<div class=meta>No routes yet. Without routes, Friday checks the direct way.</div>"; document.querySelectorAll("[data-del]").forEach((el) => { el.onclick = (ev) => { ev.preventDefault(); Android.deleteRoute(el.getAttribute("data-del")); drawRoutes(); pushPlaces(); }; }); } catch (e) {} };
   window.onRouteSaved = (msg) => { $("routeMsg").textContent = msg; drawRoutes(); if (/^Saved/.test(msg)) pushPlaces(); };
   $("addPoint").onclick = () => { const rn = $("rName").value.trim(), pn = $("pName").value.trim(); if (!rn || !pn) { $("routeMsg").textContent = "Enter a route name and a point name."; return; } $("routeMsg").textContent = "Getting your location…"; Android.addRoutePoint(rn, pn); };
   drawRoutes();
   window.onLocSaved = (kind, msg) => { $("locMsg").textContent = (kind === "home" ? "Home: " : "Office: ") + msg; if (/^Saved/.test(msg)) pushPlaces(); };
+  $("pasteGo").onclick = async () => {
+    const txt = $("pasteLoc").value.trim(), to = $("pasteTo").value, out = $("pasteMsg");
+    if (!txt) { out.textContent = "Paste something first."; return; }
+    if (to === "route" && (!$("rName").value.trim() || !$("pName").value.trim())) { out.textContent = "Fill the route name and point name above first."; return; }
+    out.textContent = "Reading…";
+    try {
+      const r = await callPlaces({ action: "parse_place", text: txt });
+      if (r.error || r.lat == null) { out.textContent = r.message || "Could not read that."; return; }
+      let m;
+      if (to === "route") m = Android.addRoutePointAt($("rName").value.trim(), $("pName").value.trim(), r.lat, r.lng);
+      else m = Android.setPlaceAt(to, r.lat, r.lng);
+      out.textContent = m + " (" + r.lat.toFixed(5) + ", " + r.lng.toFixed(5) + ")";
+      if (/^Saved/.test(m)) { pushPlaces(); drawRoutes(); $("pasteLoc").value = ""; }
+    } catch (e) { out.textContent = "Network problem. Try again."; }
+  };
   $("setOffice").onclick = () => { $("locMsg").textContent = "Getting your location…"; Android.saveLocation("office"); };
   $("setHome").onclick = () => { $("locMsg").textContent = "Getting your location…"; Android.saveLocation("home"); };
   $("testCommute").onclick = () => { Android.testCommute(); };

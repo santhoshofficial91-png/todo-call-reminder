@@ -272,6 +272,59 @@ public class MainActivity extends Activity {
             }).start();
         }
 
+
+        /** Saves office/home from given coordinates (pasted by the user). Returns a short message. */
+        @JavascriptInterface
+        public String setPlaceAt(String kind, double lat, double lng) {
+            if (!(Math.abs(lat) <= 90 && Math.abs(lng) <= 180)) return "Invalid coordinates";
+            String k = "home".equals(kind) ? "h" : "o";
+            Scheduler.p(MainActivity.this).edit().putString(k + "Lat", String.valueOf(lat)).putString(k + "Lng", String.valueOf(lng)).apply();
+            Scheduler.schedule(MainActivity.this);
+            return "Saved";
+        }
+
+        /** Appends given coordinates as a named point on a named route (max 3 routes, 5 points). Returns a short message. */
+        @JavascriptInterface
+        public String addRoutePointAt(String route, String point, double lat, double lng) {
+            try {
+                if (!(Math.abs(lat) <= 90 && Math.abs(lng) <= 180)) return "Invalid coordinates";
+                SharedPreferences sp = Scheduler.p(MainActivity.this);
+                org.json.JSONArray rs = new org.json.JSONArray(sp.getString("routes", "[]"));
+                JSONObject target = null;
+                for (int i = 0; i < rs.length(); i++) if (route.equals(rs.getJSONObject(i).optString("name"))) target = rs.getJSONObject(i);
+                if (target == null) {
+                    if (rs.length() >= 3) return "Only 3 routes allowed. Delete one first.";
+                    target = new JSONObject().put("name", route).put("points", new org.json.JSONArray());
+                    rs.put(target);
+                }
+                org.json.JSONArray pts = target.getJSONArray("points");
+                if (pts.length() >= 5) return "Max 5 points per route.";
+                pts.put(new JSONObject().put("name", point).put("lat", lat).put("lng", lng));
+                sp.edit().putString("routes", rs.toString()).apply();
+                return "Saved '" + point + "' on " + route;
+            } catch (Exception e) { return "Error: " + e; }
+        }
+
+        /** After a reinstall: fills only what is empty on the phone from the server copy. Route points are in travel order (office to home). */
+        @JavascriptInterface
+        public String restorePlaces(String json) {
+            try {
+                JSONObject o = new JSONObject(json);
+                SharedPreferences sp = Scheduler.p(MainActivity.this);
+                SharedPreferences.Editor ed = sp.edit();
+                int n = 0;
+                JSONObject of = o.optJSONObject("office");
+                if (of != null && sp.getString("oLat", "").isEmpty()) { ed.putString("oLat", String.valueOf(of.getDouble("lat"))).putString("oLng", String.valueOf(of.getDouble("lng"))); n++; }
+                JSONObject hm = o.optJSONObject("home");
+                if (hm != null && sp.getString("hLat", "").isEmpty()) { ed.putString("hLat", String.valueOf(hm.getDouble("lat"))).putString("hLng", String.valueOf(hm.getDouble("lng"))); n++; }
+                org.json.JSONArray rs = o.optJSONArray("routes");
+                if (rs != null && rs.length() > 0 && new org.json.JSONArray(sp.getString("routes", "[]")).length() == 0) { ed.putString("routes", rs.toString()); n++; }
+                ed.apply();
+                if (n > 0) Scheduler.schedule(MainActivity.this);
+                return String.valueOf(n);
+            } catch (Exception e) { return "0"; }
+        }
+
         @JavascriptInterface
         public void deleteRoute(String route) {
             try {

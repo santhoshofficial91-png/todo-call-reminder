@@ -124,8 +124,14 @@
       <button class="ghost" id="addPoint">📍 Add point here</button>
       <div class="meta" id="routeMsg"></div>
       <div id="routeList"></div>
+      <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px"><b>📋 Paste a place from Google Maps</b></div>
+      <div class="meta">Paste latitude, longitude (like 13.0827, 80.2707) or a Google Maps link. Then choose where to save it. For a route point, fill the route name and point name above.</div>
+      <input id="pasteLoc" placeholder="13.0827, 80.2707 or Google Maps link">
+      <select id="pasteTo"><option value="office">Save as Office</option><option value="home">Save as Home</option><option value="route">Add as route point</option></select>
+      <button class="ghost" id="pasteGo">📋 Save pasted place</button>
+      <div class="meta" id="pasteMsg"></div>
       <div style="border-top:1px solid var(--line);padding-top:10px;margin-top:4px"><b>🌧️ Rain alert</b></div>
-      <div class="meta">Checks every 30 min from 7 am to 9 pm. Friday calls when rain is likely (60%+) in the next hour or two. Hourly forecast, not minute-exact.</div>
+      <div class="meta">Checks every 30 min from 5 am to 9 pm. Friday calls 30–90 minutes before rain is likely (50%+). Hourly forecast, not minute-exact.</div>
       <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="rOn" style="width:20px;height:20px"> Rain alert on</label>
       <button class="ghost" id="testRain">🌧️ Test rain alert</button>
       <button class="ghost" id="testMaps">🗺️ Check Maps connection (rings)</button>
@@ -166,6 +172,6 @@
   </div>
 </div>
 
-<script src="app.js?v=20261125e"></script>
+<script src="app.js?v=20261125f"></script>
 </body>
 </html>
