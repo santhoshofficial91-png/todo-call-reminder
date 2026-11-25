@@ -1,12 +1,14 @@
-name: Build Android APK
+name: Build Friday 2.0 test APK
 on:
   push:
+    branches: [friday-v2-development]
     paths: ['android/**', '.github/workflows/build-apk.yml']
   workflow_dispatch:
 permissions:
-  contents: write
+  contents: read
 jobs:
   build:
+    if: github.ref == 'refs/heads/friday-v2-development'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,20 +21,23 @@ jobs:
           gradle-version: '8.9'
       - name: Build debug APK
         working-directory: android
-        run: gradle --no-daemon assembleDebug 2>&1 | tee ../build.log
-      - name: Publish APK to release
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon assembleDebug 2>&1 | tee ../build.log
+      - name: Upload Friday 2.0 test APK
         if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cp android/app/build/outputs/apk/debug/app-debug.apk reminder-call.apk
-          gh release delete latest --yes --cleanup-tag || true
-          gh release create latest reminder-call.apk --title "Reminder Call APK" --notes "Latest build $(date -u +%F\ %T) UTC (commit ${GITHUB_SHA::7})" --latest
-      - name: Save build log on failure
+        uses: actions/upload-artifact@v4
+        with:
+          name: Friday-2.0-test-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload build log on failure
         if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tail -n 200 build.log > build-error.txt || echo "no log" > build-error.txt
-          gh release delete buildlog --yes --cleanup-tag || true
-          gh release create buildlog build-error.txt --title "Build log" --notes "Last failed build" --prerelease
+        uses: actions/upload-artifact@v4
+        with:
+          name: Friday-2.0-build-log
+          path: build.log
+          if-no-files-found: ignore
+          retention-days: 7
