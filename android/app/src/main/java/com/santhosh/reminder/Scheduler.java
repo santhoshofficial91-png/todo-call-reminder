@@ -157,18 +157,18 @@ public class Scheduler {
 
     static final String WEATHER_API = "https://nicynemyjdiukkbltjwq.supabase.co/functions/v1/weather-api";
 
-    /** Rain checks every 30 min between 07:00 and 21:00 IST when the rain alert is on. */
+    /** Rain checks every 30 min between 05:00 and 21:00 IST when the rain alert is on. */
     static long nextRain(Context c, long now) {
         if (!p(c).getBoolean("rEnabled", false)) return Long.MAX_VALUE;
         Calendar cal = Calendar.getInstance(IST);
         cal.setTimeInMillis(now);
         cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
         long mid = cal.getTimeInMillis();
-        for (int m = 7 * 60; m <= 21 * 60; m += 30) {
+        for (int m = 5 * 60; m <= 21 * 60; m += 30) {
             long t = mid + m * 60000L;
             if (t > now + 1000) return t;
         }
-        return mid + 86400000L + 7 * 60 * 60000L;
+        return mid + 86400000L + 5 * 60 * 60000L;
     }
 
     static long rainSlot(Context c, long now) {
@@ -176,7 +176,7 @@ public class Scheduler {
         Calendar cal = Calendar.getInstance(IST);
         cal.setTimeInMillis(now + 60000L);
         int mins = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE);
-        if (mins < 7 * 60 || mins > 21 * 60) return -1;
+        if (mins < 5 * 60 || mins > 21 * 60) return -1;
         int slot = mins / 30 * 30;
         cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
         return cal.getTimeInMillis() + slot * 60000L;
@@ -188,7 +188,9 @@ public class Scheduler {
         try {
             String token = p(c).getString("token", "");
             if (token.isEmpty()) return false;
-            JSONObject body = new JSONObject().put("hours", 3);
+            Calendar nc = Calendar.getInstance(IST);
+            int nowMin = nc.get(Calendar.HOUR_OF_DAY) * 60 + nc.get(Calendar.MINUTE);
+            JSONObject body = new JSONObject().put("hours", 4);
             Location l = Loc.current(c, 6000);
             if (l != null) body.put("here", new JSONObject().put("lat", l.getLatitude()).put("lng", l.getLongitude()));
             h = (HttpURLConnection) new URL(WEATHER_API).openConnection();
@@ -211,7 +213,14 @@ public class Scheduler {
             for (int i = 0; i < places.length(); i++) {
                 JSONArray hr = places.getJSONObject(i).optJSONArray("hourly");
                 if (hr == null) continue;
-                for (int k = 0; k < Math.min(2, hr.length()); k++) if (hr.getJSONObject(k).optInt("chance_percent", 0) >= 60) return true;
+                for (int k = 0; k < hr.length(); k++) {
+                    JSONObject e = hr.getJSONObject(k);
+                    String tm = e.optString("time", "");
+                    if (tm.length() < 5) continue;
+                    int tmin = Integer.parseInt(tm.substring(0, 2)) * 60 + Integer.parseInt(tm.substring(3, 5));
+                    // rain starting within the next 90 min (early warning), or already in the current hour
+                    if (tmin <= nowMin + 90 && (e.optInt("chance_percent", 0) >= 50 || e.optDouble("mm", 0) >= 0.5)) return true;
+                }
             }
             return false;
         } catch (Exception e) {
@@ -378,7 +387,7 @@ public class Scheduler {
                 long rs = rainSlot(c, now);
                 if (rs > 0 && rs > p(c).getLong("lastRSlot", 0)) {
                     p(c).edit().putLong("lastRSlot", rs).apply();
-                    if (now - p(c).getLong("lastRain", 0) > 3 * 3600000L && rainSoon(c)) {
+                    if (now - p(c).getLong("lastRain", 0) > 2 * 3600000L && rainSoon(c)) {
                         p(c).edit().putLong("lastRain", now).apply();
                         ring(c, "rain", new JSONArray(), new JSONArray());
                     }
