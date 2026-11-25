@@ -553,8 +553,26 @@ function setupNativeCard() {
         }
       }
     } catch (e) {}
+    // Places queued from chat: apply once, then acknowledge so they are never added twice.
+    const applyInbox = async () => {
+      try {
+        const q = await callPlaces({ action: "inbox_get" });
+        const done = [];
+        for (const it of (q.items || [])) {
+          let m = "";
+          if (it.kind === "route") m = Android.addRoutePointAt(it.route, it.name, it.lat, it.lng);
+          else m = Android.setPlaceAt(it.kind, it.lat, it.lng);
+          if (/^Saved/.test(m) || /Max 5|Only 3/.test(m)) done.push(it.id);
+        }
+        if (done.length) { await callPlaces({ action: "inbox_ack", ids: done }); return done.length; }
+      } catch (e) {}
+      return 0;
+    };
+    window.__applyInbox = applyInbox;
+    const n = await applyInbox();
     pushPlaces();
     try { drawRoutes(); } catch (e) {}
+    if (n && $("routeMsg")) $("routeMsg").textContent = n + " place(s) added from chat.";
   })();
   const drawRoutes = () => { try { const pl = JSON.parse(Android.places()); $("routeList").innerHTML = (pl.routes || []).map((rt) => "<div class=meta><b>" + rt.name + "</b>: " + (rt.points.map((q) => q.name).join(" → ") || "no points yet") + " <a href='#' data-del='" + rt.name.replace(/'/g, "") + "'>delete</a></div>").join("") || "<div class=meta>No routes yet. Without routes, Friday checks the direct way.</div>"; document.querySelectorAll("[data-del]").forEach((el) => { el.onclick = (ev) => { ev.preventDefault(); Android.deleteRoute(el.getAttribute("data-del")); drawRoutes(); pushPlaces(); }; }); } catch (e) {} };
   window.onRouteSaved = (msg) => { $("routeMsg").textContent = msg; drawRoutes(); if (/^Saved/.test(msg)) pushPlaces(); };
