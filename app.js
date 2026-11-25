@@ -558,8 +558,10 @@ function setupNativeCard() {
       try {
         const q = await callPlaces({ action: "inbox_get" });
         const done = [];
+        const cleared = {};
         for (const it of (q.items || [])) {
           let m = "";
+          if (it.kind === "route" && it.replace && !cleared[it.route]) { cleared[it.route] = 1; Android.deleteRoute(it.route); }
           if (it.kind === "route") m = Android.addRoutePointAt(it.route, it.name, it.lat, it.lng);
           else m = Android.setPlaceAt(it.kind, it.lat, it.lng);
           if (/^Saved/.test(m) || /Max 5|Only 3/.test(m)) done.push(it.id);
