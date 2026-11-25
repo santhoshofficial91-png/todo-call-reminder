@@ -54,7 +54,7 @@ public class Scheduler {
         } catch (Exception ignored) {}
     }
 
-    /** Start of the next IST hour (9..21) strictly after 'after'. */
+    /** Start of the next IST hour (10..18) strictly after 'after'. */
     static long nextHourly(long after) {
         Calendar cal = Calendar.getInstance(IST);
         cal.setTimeInMillis(after);
@@ -62,18 +62,18 @@ public class Scheduler {
         for (int i = 0; i < 30; i++) {
             cal.add(Calendar.HOUR_OF_DAY, 1);
             int h = cal.get(Calendar.HOUR_OF_DAY);
-            if (h >= 9 && h <= 21) return cal.getTimeInMillis();
+            if (h >= 10 && h <= 18) return cal.getTimeInMillis();
         }
         return after + 3600000L;
     }
 
-    /** Start of the current IST hour if it is an hourly slot (9..21), else -1. */
+    /** Start of the current IST hour if it is an hourly slot (10..18), else -1. */
     static long currentSlot(long now) {
         Calendar cal = Calendar.getInstance(IST);
         cal.setTimeInMillis(now);
         int h = cal.get(Calendar.HOUR_OF_DAY);
         cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0);
-        return (h >= 9 && h <= 21) ? cal.getTimeInMillis() : -1;
+        return (h >= 10 && h <= 18) ? cal.getTimeInMillis() : -1;
     }
 
     /** Set the single next system alarm (alarm-clock type: works through Doze and on the lock screen). */
