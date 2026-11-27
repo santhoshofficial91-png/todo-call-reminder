@@ -1,0 +1,44 @@
+name: Friday iOS unsigned test IPA
+on:
+  push:
+    branches: [friday-ios-test]
+    paths: ['ios-test/**', '.github/workflows/friday-ios-test.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    if: github.ref == 'refs/heads/friday-ios-test'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select tools
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          brew install xcodegen
+      - name: Generate Xcode project
+        working-directory: ios-test
+        run: xcodegen generate
+      - name: Compile unsigned device app
+        working-directory: ios-test
+        run: |
+          set -o pipefail
+          xcodebuild -project FridayIOSTest.xcodeproj -scheme FridayIOSTest -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build 2>&1 | tee build.log
+      - name: Package unsigned IPA
+        working-directory: ios-test
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/FridayIOSTest.app Payload/
+          zip -qr Friday-iOS-Test-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Friday-iOS-Test-unsigned
+          path: ios-test/Friday-iOS-Test-unsigned.ipa
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: friday-ios-build-log
+          path: ios-test/build.log
+          if-no-files-found: ignore
