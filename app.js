@@ -146,7 +146,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js?v=20261122c");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261127a");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -179,6 +179,7 @@ const TOOLS = [{
     { name: "query_records", description: "Exact numbers about the user's own tasks and calls, computed by the database. topic: task_stats = counts of tasks created, completed and due between from and to (IST dates YYYY-MM-DD, default today), plus pending and overdue now and the most rescheduled pending tasks; task_search = find tasks by words in the title (optional status pending/done/cancelled, from, to, limit); call_stats = how many Friday calls were answered, declined or ended in the last N days. Never guess numbers; use this tool.", parameters: { type: "OBJECT", properties: { topic: { type: "STRING", enum: ["task_stats", "task_search", "call_stats"] }, query: { type: "STRING" }, status: { type: "STRING" }, from: { type: "STRING" }, to: { type: "STRING" }, days: { type: "NUMBER" }, limit: { type: "NUMBER" } }, required: ["topic"] } },
     { name: "get_cfo_summary", description: "READ-ONLY business overview from Expert One. kind: summary = receivables (open dues with aging buckets), payables (pending and approved-not-paid payment requests, PO balance) and whether the data is fresh; aging = only the due-date buckets; alerts = recent business alerts raised; rules = current alert thresholds and whether alerts are on. Amounts are rupees; say lakh/crore. Receivables are what customers owe, not cash received. A cash-flow forecast is NOT available (no bank/cash data): say so if asked.", parameters: { type: "OBJECT", properties: { kind: { type: "STRING", enum: ["summary", "aging", "alerts", "rules"] } }, required: ["kind"] } },
     { name: "set_alert_rules", description: "Change the automatic business alert settings: enabled (true/false), overdue_days (alert when a customer's dues are this many days overdue), min_overdue_inr (minimum total overdue rupees per customer), pending_payment_inr (alert when unpaid payment requests total at least this). Read the new values back and call this ONLY after the user clearly agrees.", parameters: { type: "OBJECT", properties: { enabled: { type: "BOOLEAN" }, overdue_days: { type: "NUMBER" }, min_overdue_inr: { type: "NUMBER" }, pending_payment_inr: { type: "NUMBER" } } } },
+    { name: "add_multiple_tasks", description: "Create up to 10 tasks after the user confirms their titles and times. Report partial failures accurately.", parameters: { type: "OBJECT", properties: { tasks: { type: "ARRAY", items: { type: "OBJECT", properties: { title: { type: "STRING" }, due_at_iso: { type: "STRING" }, priority: { type: "STRING", enum: ["normal", "high"] } }, required: ["title"] } } }, required: ["tasks"] } },
     { name: "end_call", description: "Hang up after saying goodbye.", parameters: { type: "OBJECT", properties: {} } },
   ],
 }];
@@ -210,6 +211,8 @@ General rules:
 - The user may interrupt at any moment. Drop what you were saying and react to what they said.
 - If the user says a task is finished -> call mark_done with that task's id, then confirm in a few words.
 - If they ask to be reminded later -> call reschedule. Relative times: use minutes (1 hour = 60, 15 minutes = 15, 25 seconds = 0.42). Clock times ("5 o'clock evening", "tomorrow 9 am"): compute the exact ISO 8601 timestamp in IST (+05:30) from the current time above and pass due_at_iso. Always confirm the new time back to the user.
+- For multiple new tasks, read back the titles and due times, confirm, then use add_multiple_tasks. Never retry failed or uncertain submissions automatically. Report partial success.
+- You can coach English, draft letters and emails on request, and compare decisions using known facts; distinguish facts from advice, do not claim to send messages, and never invent current internet data.
 - If they mention a new task -> call add_task (with a time if they gave one). If they no longer need a task -> cancel_task.
 - Memory and notes: save ONLY when the user explicitly asks you to remember or note something (save_memory for facts and preferences, add_voice_note for dictated notes); never save on your own and never save passwords, PINs, OTPs, card numbers or keys. Confirm briefly after saving. To recall, call search_memory with the key words; if it finds nothing say so plainly, never guess. Delete only after the user clearly confirms.
 - Repeating tasks: when the user wants something to repeat (daily, weekly, monthly), read back the title, the repeat rule and the time in IST, and call add_recurring_task only after they agree. Day 29-31 monthly tasks use the last day of shorter months, say so when it applies. Use list_recurring_tasks / delete_recurring_task to show or stop them.
@@ -427,6 +430,15 @@ async function runTools(s, calls) {
       if (c.name === "mark_done") await api("done", { id: a.task_id });
       else if (c.name === "reschedule") out = await api("reschedule", a.minutes != null && !a.due_at_iso ? { id: a.task_id, minutes: Number(a.minutes) } : { id: a.task_id, due_at: a.due_at_iso });
       else if (c.name === "add_task") out = await api("add", { title: a.title, priority: a.priority === "high" ? "high" : undefined, due_at: a.due_at_iso || (a.minutes_from_now ? new Date(Date.now() + Number(a.minutes_from_now) * 60000).toISOString() : null), source: "voice" });
+      else if (c.name === "add_multiple_tasks") {
+        if (!Array.isArray(a.tasks) || !a.tasks.length || a.tasks.length > 10 || a.tasks.some(t => !t || typeof t.title !== "string" || !t.title.trim() || (t.due_at_iso && !Number.isFinite(Date.parse(t.due_at_iso))))) throw new Error("Invalid task list");
+        const results = [];
+        for (const t of a.tasks) {
+          try { const j = await api("add", { title: t.title, due_at: t.due_at_iso || null, priority: t.priority === "high" ? "high" : "normal", source: "voice" }); results.push({ title: t.title, ok: j.ok === true }); }
+          catch (e) { results.push({ title: t.title, ok: false, error: e.message }); break; }
+        }
+        out = { ok: results.length === a.tasks.length && results.every(t => t.ok), results, unattempted: a.tasks.length - results.length };
+      }
       else if (c.name === "cancel_task") await api("cancel", { id: a.task_id });
       else if (c.name === "expert_query") {
         const { topic, ...rest } = a;
@@ -688,7 +700,7 @@ $("tabBtnLife").onclick = () => setTab("life");
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(); });
-  navigator.serviceWorker.register("sw.js?v=20261122c").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=20261127a").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
