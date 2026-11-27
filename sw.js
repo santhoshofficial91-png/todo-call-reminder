@@ -39,22 +39,24 @@ self.addEventListener("push", (event) => {
     vibrate: [400, 200, 400, 200, 400, 200, 400],
     icon: "icon-192.png",
     badge: "icon-192.png",
-    data: { url: "./?call=1", mode },
+    data: { url: "./?call=1", mode, taskId: id },
   }));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || "./?call=1";
+  const d=event.notification.data||{};
+  const url=new URL("./?call=1",self.registration.scope);
+  if(d.mode==="task"&&d.taskId)url.searchParams.set("task",d.taskId);
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const c of all) {
       if ("focus" in c && c.url.startsWith(self.registration.scope)) {
         await c.focus();
-        c.postMessage({ type: "incoming-call" });
+        c.postMessage({ type: "incoming-call", taskId: d.mode==="task"?d.taskId:null });
         return;
       }
     }
-    await self.clients.openWindow(url);
+    await self.clients.openWindow(url.href);
   })());
 });
