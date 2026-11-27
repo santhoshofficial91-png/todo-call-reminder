@@ -195,7 +195,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js?v=20261127d");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261127e");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -364,7 +364,7 @@ async function answerCall() {
 
     // Output chain: boost volume, soft-limit, then route to ear (default) or loudspeaker.
     s.gain = s.actx.createGain();
-    s.gain.gain.value = 0.25;
+    s.gain.gain.value = NATIVE ? 0.30 : 0.045;
     s.comp = s.actx.createDynamicsCompressor();
     s.comp.threshold.value = -3; s.comp.knee.value = 0; s.comp.ratio.value = 20; s.comp.attack.value = 0.002; s.comp.release.value = 0.1; // limiter only: keeps the loud/soft difference audible
     s.gain.connect(s.comp);
@@ -461,15 +461,15 @@ function playChunk(s, b64) {
 function applyRoute(s) {
   try { s.comp.disconnect(); } catch (e) {}
   if (NATIVE) { // Android app: the OS does the real earpiece/speaker routing
-    s.gain.gain.value = s.speaker ? 3.5 : 1.2;
+    s.gain.gain.value = s.speaker ? 2.0 : 0.30;
     s.comp.connect(s.actx.destination);
     try { Android.setSpeaker(!!s.speaker); } catch (e) {}
-    $("spkLbl").textContent = s.speaker ? "Speaker off" : "Speaker on";
+    $("spkLbl").textContent = s.speaker ? "Speaker ON" : "Speaker OFF";
     $("spk").classList.toggle("spk-on", !!s.speaker);
     $("spk").classList.toggle("spk-off", !s.speaker);
     return;
   }
-  s.gain.gain.value = s.speaker ? 3.5 : 0.25; // clearly loud on speaker, clearly soft for the ear
+  s.gain.gain.value = s.speaker ? 2.0 : 0.045; // quiet near-ear listening by default; louder only on explicit speaker toggle
   if (s.speaker) {
     s.comp.connect(s.streamDest);
     s.audioEl.play().catch(() => {});
@@ -478,10 +478,10 @@ function applyRoute(s) {
     s.comp.connect(s.actx.destination);
   }
   // Button shows the NEXT action: off state says "Speaker on" (dim); on state says "Speaker off" (bright, highlighted).
-  $("spkLbl").textContent = s.speaker ? "Speaker off" : "Speaker on";
+  $("spkLbl").textContent = s.speaker ? "Speaker ON" : "Speaker OFF";
   $("spk").classList.toggle("spk-on", !!s.speaker);
   $("spk").classList.toggle("spk-off", !s.speaker);
-  $("spk").setAttribute("aria-label", s.speaker ? "Speaker off" : "Speaker on");
+  $("spk").setAttribute("aria-label", s.speaker ? "Speaker ON" : "Speaker OFF");
 }
 function stopPlayback(s) {
   for (const src of s.sources) { try { src.stop(); } catch (e) {} }
@@ -851,7 +851,7 @@ if ($("scanFile")) $("scanFile").onchange=async()=>{
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(e.data.taskId); });
-  navigator.serviceWorker.register("sw.js?v=20261127d").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=20261127e").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
