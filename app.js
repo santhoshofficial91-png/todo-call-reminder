@@ -195,7 +195,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js?v=20261127f");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261127g");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -311,12 +311,18 @@ function closeCall() {
 }
 
 async function answerCall() {
+  if (call && !call.ended) return;
   $("call").classList.remove("ring");
   $("incoming").classList.add("hidden");
   $("active").classList.remove("hidden");
   $("cstate").textContent = "Connecting…";
   const s = (call = { ws: null, mic: null, actx: null, node: null, sources: new Set(), nextT: 0, muted: false, gotOut: false, ended: false, wake: null });
   try {
+    // Unlock WebAudio immediately within the Answer tap, before network awaits.
+    try { if (navigator.audioSession) navigator.audioSession.type = "play-and-record"; } catch (e) {}
+    s.actx = new (window.AudioContext || window.webkitAudioContext)();
+    const resumeAudio = s.actx.resume();
+    resumeAudio.catch(() => {});
     const selected=webReminderTask;webReminderTask=null;
     if(selected)await api("set_last_call",{mode:"task",ids:[selected]});
     const [tok, ctx] = await Promise.all([api("live_token"), api("call_context")]);
@@ -332,8 +338,8 @@ async function answerCall() {
     api("call_answered").catch(() => {}); // stops the retry ringing for this call
     if (NATIVE) { try { Android.callStarted(); } catch (e) {} }
     s.mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
-    s.actx = new (window.AudioContext || window.webkitAudioContext)();
-    await s.actx.resume();
+    await resumeAudio;
+    if (s.ended) return;
     try { s.wake = await navigator.wakeLock.request("screen"); } catch (e) {}
 
     const workletSrc = `
@@ -358,13 +364,16 @@ async function answerCall() {
       }
       registerProcessor('cap', Cap);`;
     const url = URL.createObjectURL(new Blob([workletSrc], { type: "application/javascript" }));
-    await s.actx.audioWorklet.addModule(url);
+    try { await s.actx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
     s.node = new AudioWorkletNode(s.actx, "cap");
     s.actx.createMediaStreamSource(s.mic).connect(s.node);
+    // Keep the microphone worklet in the active render graph without playing its input.
+    const silent = s.actx.createGain(); silent.gain.value=0;
+    s.node.connect(silent); silent.connect(s.actx.destination);
 
     // Output chain: boost volume, soft-limit, then route to ear (default) or loudspeaker.
     s.gain = s.actx.createGain();
-    s.gain.gain.value = NATIVE ? 0.12 : 0.025;
+    s.gain.gain.value = NATIVE ? 0.30 : 0.12;
     s.comp = s.actx.createDynamicsCompressor();
     s.comp.threshold.value = -3; s.comp.knee.value = 0; s.comp.ratio.value = 20; s.comp.attack.value = 0.002; s.comp.release.value = 0.1; // limiter only: keeps the loud/soft difference audible
     s.gain.connect(s.comp);
@@ -406,6 +415,8 @@ async function answerCall() {
       // Loudspeaker echo gets picked up by the mic and the server treats it as the user interrupting,
       // which cuts the voice. In speaker mode, stay quiet while the AI is speaking (plus a short tail).
       if (s.speaker && s.actx.currentTime < s.nextT + 0.4) return;
+      // Prevent ambient microphone noise from cancelling the initial greeting.
+      if (!s.gotOut && Date.now() < (s.greetingUntil || 0)) return;
       const bytes = new Uint8Array(e.data);
       let bin = ""; for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
       ws.send(JSON.stringify({ realtimeInput: { audio: { data: btoa(bin), mimeType: "audio/pcm;rate=16000" } } }));
@@ -419,7 +430,8 @@ async function answerCall() {
 function handleServer(s, m) {
   if (m.setupComplete) {
     s.ready = true;
-    $("cstate").textContent = "Speak — you can interrupt anytime";
+    s.greetingUntil = Date.now() + 6000;
+    $("cstate").textContent = "Connected — waiting for Friday’s voice…";
     // Start the greeting immediately with a client turn. (The realtime-text kick-off was ignored by the model,
     // so the greeting only began after the old 6s fallback timer.)
     const kick = "அழைப்பு தொடங்கிவிட்டது. இப்போதே தொடங்கு.";
@@ -427,6 +439,7 @@ function handleServer(s, m) {
     setTimeout(() => { // safety net if nothing was spoken
       if (!s.gotOut && !s.ended && s.ws.readyState === 1) s.ws.send(JSON.stringify({ realtimeInput: { text: kick } }));
     }, 4000);
+    setTimeout(()=>{if(!s.gotOut&&!s.ended){$("cstate").textContent="No voice received yet — try speaking or reconnecting";}},12000);
   }
   const sc = m.serverContent;
   if (sc) {
@@ -434,7 +447,7 @@ function handleServer(s, m) {
     if (sc.inputTranscription && sc.inputTranscription.text) addCap("me", sc.inputTranscription.text);
     if (sc.outputTranscription && sc.outputTranscription.text) addCap("ai", sc.outputTranscription.text);
     const parts = sc.modelTurn && sc.modelTurn.parts;
-    if (parts) for (const p of parts) if (p.inlineData && p.inlineData.data) { s.gotOut = true; playChunk(s, p.inlineData.data); }
+    if (parts) for (const p of parts) if (p.inlineData && p.inlineData.data) { s.gotOut = true; $("cstate").textContent = "Speak — you can interrupt anytime"; try { playChunk(s, p.inlineData.data); } catch (e) { $("cstate").textContent="Audio playback error — tap speaker to retry"; } }
   }
   if (m.toolCall && m.toolCall.functionCalls) runTools(s, m.toolCall.functionCalls);
 }
@@ -461,7 +474,7 @@ function playChunk(s, b64) {
 function applyRoute(s) {
   try { s.comp.disconnect(); } catch (e) {}
   if (NATIVE) { // Android app: the OS does the real earpiece/speaker routing
-    s.gain.gain.value = s.speaker ? 2.0 : 0.12;
+    s.gain.gain.value = s.speaker ? 2.0 : 0.30;
     s.comp.connect(s.actx.destination);
     try { Android.setSpeaker(!!s.speaker); } catch (e) {}
     $("spkLbl").textContent = s.speaker ? "Speaker ON" : "Speaker OFF";
@@ -469,7 +482,7 @@ function applyRoute(s) {
     $("spk").classList.toggle("spk-off", !s.speaker);
     return;
   }
-  s.gain.gain.value = s.speaker ? 2.0 : 0.025; // quiet near-ear listening by default; louder only on explicit speaker toggle
+  s.gain.gain.value = s.speaker ? 2.0 : 0.12; // quiet near-ear listening by default; louder only on explicit speaker toggle
   if (s.speaker) {
     s.comp.connect(s.streamDest);
     s.audioEl.play().catch(() => {});
@@ -599,7 +612,7 @@ $("talk").onclick = () => openIncoming();
 $("answer").onclick = () => answerCall();
 $("decline").onclick = () => { api("call_ended", { declined: true }).catch(() => {}); closeCall(); };
 $("hang").onclick = () => finishCall(true);
-$("spk").onclick = () => { if (call && call.comp) { call.speaker = !call.speaker; applyRoute(call); } };
+$("spk").onclick = () => { if (call && call.comp) { call.actx.resume().catch(()=>{}); call.speaker = !call.speaker; applyRoute(call); } };
 $("mute").onclick = () => {
   if (!call) return;
   call.muted = !call.muted;
@@ -851,7 +864,7 @@ if ($("scanFile")) $("scanFile").onchange=async()=>{
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(e.data.taskId); });
-  navigator.serviceWorker.register("sw.js?v=20261127f").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=20261127g").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
