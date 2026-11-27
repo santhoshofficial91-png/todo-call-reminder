@@ -16,15 +16,19 @@ self.addEventListener("push", (event) => {
     .replace("இந்த வேலைக்கான நேரம் வந்துவிட்டது. தட்டிப் பேசுங்கள்.", "It's time for this task. Tap to talk.");
   const title = en(d && d.title) || "📞 Reminder Call";
   const body = en(d && d.body) || "You have pending tasks. Tap to talk.";
+  const mode = d && typeof d.mode === "string" ? d.mode : "hourly";
+  // Retain separate task alerts even when the server does not send a task ID.
+  const id = d && typeof d.task_id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(d.task_id) ? d.task_id : null;
+  const tag = mode === "task" ? "friday-task-" + (id || crypto.randomUUID()) : "friday-" + mode;
   event.waitUntil(self.registration.showNotification(title, {
     body,
-    tag: "reminder-call",
+    tag,
     renotify: true,
     requireInteraction: true,
     vibrate: [400, 200, 400, 200, 400, 200, 400],
     icon: "icon-192.png",
     badge: "icon-192.png",
-    data: { url: "./?call=1", mode: (d && d.mode) || "hourly" },
+    data: { url: "./?call=1", mode },
   }));
 });
 
@@ -34,7 +38,7 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const c of all) {
-      if ("focus" in c) {
+      if ("focus" in c && c.url.startsWith(self.registration.scope)) {
         await c.focus();
         c.postMessage({ type: "incoming-call" });
         return;
