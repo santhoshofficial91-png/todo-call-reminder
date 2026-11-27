@@ -1,6 +1,21 @@
 import SwiftUI
 import AlarmKit
 import UserNotifications
+import AppIntents
+
+struct TalkToFridayIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Talk to Friday"
+    static var openAppWhenRun = true
+    @Parameter(title: "Alarm ID") var alarmID: String
+    init() { alarmID = "" }
+    init(alarmID: String) { self.alarmID = alarmID }
+    func perform() async throws -> some IntentResult {
+        UserDefaults.standard.set(alarmID, forKey: "friday.talkRequest")
+        if let id = UUID(uuidString: alarmID) { try? AlarmManager.shared.stop(id: id) }
+        return .result()
+    }
+}
+
 
 struct FridayAlarmMetadata: AlarmMetadata, Codable, Hashable, Sendable {}
 
@@ -15,6 +30,9 @@ struct FridayHome: View {
     @State private var busy = false
     @State private var permission = "Not checked"
     @State private var fallback = true
+    @AppStorage("friday.talkRequest") private var talkRequest = ""
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showTalk = false
     @AppStorage("friday.lastAlarmID") private var lastID = ""
 
     var body: some View {
@@ -22,7 +40,7 @@ struct FridayHome: View {
             Form {
                 Section {
                     Text("FRIDAY").font(.largeTitle.bold()).foregroundStyle(.cyan)
-                    Text("iPhone • AlarmKit test edition v0.2").foregroundStyle(.secondary)
+                    Text("iPhone • AlarmKit test edition v0.4").foregroundStyle(.secondary)
                     Text("Local alarms only. No production database changes.")
                         .font(.footnote)
                 }
@@ -57,6 +75,7 @@ struct FridayHome: View {
                     Text(status).font(.footnote)
                 }.disabled(busy)
                 Section("Existing assistant") {
+                    Button("Preview Talk to Friday screen") { showTalk = true }
                     Link("Open existing Friday web app", destination: URL(string: "https://santhoshofficial91-png.github.io/todo-call-reminder/")!)
                     Text("Opens your existing live Friday in Safari. Native voice, task sync and business integration are not part of this alarm test.").font(.footnote).foregroundStyle(.secondary)
                 }
@@ -64,8 +83,37 @@ struct FridayHome: View {
                     Text("Allow alarm access, schedule the 30-second test, then lock your iPhone. The system alarm should appear when due. This is not a phone call.")
                 }
             }.navigationTitle("Friday Test")
+                .onAppear { checkTalkRequest() }
+                .onChange(of: scenePhase) { _, phase in if phase == .active { checkTalkRequest() } }
+                .onChange(of: talkRequest) { _, _ in if scenePhase == .active { checkTalkRequest() } }
+                .fullScreenCover(isPresented: $showTalk) { talkScreen }
         }
     }
+    private func checkTalkRequest() {
+        let request = UserDefaults.standard.string(forKey: "friday.talkRequest") ?? ""
+        guard !request.isEmpty else { return }
+        talkRequest = ""
+        showTalk = true
+    }
+
+    private var talkScreen: some View {
+        VStack(spacing: 24) {
+            Spacer()
+            Image(systemName: "waveform.circle.fill").font(.system(size: 96)).foregroundStyle(.cyan)
+            Text("Friday").font(.largeTitle.bold())
+            Text("Your reminder is ready").foregroundStyle(.secondary)
+            Spacer()
+            Link(destination: URL(string: "https://santhoshofficial91-png.github.io/todo-call-reminder/")!) {
+                Label("Open Friday Voice Assistant", systemImage: "phone.fill")
+                    .frame(maxWidth: .infinity).padding()
+                    .background(.green, in: RoundedRectangle(cornerRadius: 20))
+                    .foregroundStyle(.white)
+            }
+            Text("Opens Friday in Safari. Tap Call Friday and Answer to start the conversation. Internet and existing pairing may be required.").font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("Close", role: .cancel) { showTalk = false }.padding()
+        }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.black).preferredColorScheme(.dark)
+    }
+
     private func schedule(at date: Date) {
         guard date > Date().addingTimeInterval(1) else { status = "Select a future time."; return }
         busy = true
@@ -82,9 +130,10 @@ struct FridayHome: View {
                 let label = reminder.trimmingCharacters(in: .whitespacesAndNewlines)
                 let title = LocalizedStringResource(stringLiteral: String((label.isEmpty ? "Friday reminder" : label).prefix(80)))
                 let stop = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle")
-                let alert = AlarmPresentation.Alert(title: title, stopButton: stop)
+                let talk = AlarmButton(text: "Talk to Friday", textColor: .white, systemImageName: "phone.fill")
+                let alert = AlarmPresentation.Alert(title: title, stopButton: stop, secondaryButton: talk, secondaryButtonBehavior: .custom)
                 let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert), metadata: FridayAlarmMetadata(), tintColor: .cyan)
-                let config = AlarmManager.AlarmConfiguration.alarm(schedule: .fixed(max(date, Date().addingTimeInterval(5))), attributes: attributes, sound: .default)
+                let config = AlarmManager.AlarmConfiguration.alarm(schedule: .fixed(max(date, Date().addingTimeInterval(5))), attributes: attributes, secondaryIntent: TalkToFridayIntent(alarmID: id.uuidString), sound: .default)
                 _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
                 if let previous = UUID(uuidString: lastID) {
                     do { try AlarmManager.shared.cancel(id: previous) }
