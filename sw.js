@@ -2,8 +2,8 @@
 // The server sends an encrypted payload (title/body), so we show the notification
 // IMMEDIATELY with no network call (network is suspended while the phone sleeps).
 
-const CACHE="friday-shell-20261127i";
-const SHELL=["./","./index.html","./app.js?v=20261127i","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
+const CACHE="friday-shell-20261127j";
+const SHELL=["./","./index.html","./app.js?v=20261127j","./manifest.webmanifest","./icon-192.png","./icon-512.png"];
 self.addEventListener("install",event=>event.waitUntil((async()=>{const cache=await caches.open(CACHE);await cache.addAll(SHELL);await self.skipWaiting();})()));
 self.addEventListener("activate",event=>event.waitUntil((async()=>{for(const key of await caches.keys()){if(key.startsWith("friday-shell-")&&key!==CACHE)await caches.delete(key);}await self.clients.claim();})()));
 self.addEventListener("fetch",event=>{
