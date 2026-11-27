@@ -7,15 +7,19 @@ targets:
     type: application
     platform: iOS
     sources: [Sources]
+    info:
+      path: Generated/Info.plist
+      properties:
+        CFBundleDisplayName: Friday Test
+        NSAlarmKitUsageDescription: Friday needs permission to ring at your chosen reminder time.
+        UILaunchScreen: {}
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.santhosh.friday.iostest
         PRODUCT_NAME: FridayIOSTest
         SWIFT_VERSION: "5.0"
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: Friday Test
-        INFOPLIST_KEY_NSAlarmKitUsageDescription: Friday needs permission to ring at your chosen reminder time.
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        MARKETING_VERSION: "0.1.0"
-        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Generated/Info.plist
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "3"
         TARGETED_DEVICE_FAMILY: "1"
