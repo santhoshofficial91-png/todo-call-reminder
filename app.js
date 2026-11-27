@@ -66,17 +66,56 @@ function istNowString() {
   return new Date().toLocaleString("en-GB", { timeZone: TZ, dateStyle: "full", timeStyle: "short" });
 }
 
+/* ---------- offline task drafts: explicit opt-in, idempotent upload ---------- */
+const offlineKey="friday.offline.v1";
+function offlineRead(){try{return JSON.parse(localStorage.getItem(offlineKey)||"null");}catch{return null;}}
+function offlineWrite(v){try{localStorage.setItem(offlineKey,JSON.stringify(v));return true;}catch{return false;}}
+async function offlineOwner(){const token=getToken();if(!token)return "";const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(token));return Array.from(new Uint8Array(digest)).map(x=>x.toString(16).padStart(2,"0")).join("");}
+async function offlineState(){const s=offlineRead();return s?.owner===(await offlineOwner())?s:null;}
+let flushing=false;
+async function flushDrafts(){
+ if(NATIVE||flushing||!navigator.onLine)return;
+ flushing=true;
+ try{
+  const s=await offlineState();if(!s||!s.enabled)return;
+  while(s.drafts.length){
+   const draft=s.drafts[0];const result=await api("add",draft);
+   if(!result.ok)throw Error("Draft upload failed");
+   const current=await offlineState();if(!current||!current.enabled||current.drafts[0]?.client_request_id!==draft.client_request_id)return;
+   current.drafts.shift();if(!offlineWrite(current))throw Error("Could not persist sync status");
+   s.drafts=current.drafts;
+  }
+ }finally{flushing=false;}
+}
+async function saveOfflineDraft(title,due_at){
+ const s=await offlineState();if(!s?.enabled)throw Error("Offline drafts are disabled. Enable in Command → Offline drafts while online.");
+ if(s.drafts.length>=100)throw Error("Offline draft limit reached");
+ s.drafts.push({title,due_at,client_request_id:crypto.randomUUID()});
+ if(!offlineWrite(s))throw Error("Local storage unavailable");
+}
+window.addEventListener("online",()=>{if(!NATIVE&&getToken())load();});
 /* ---------- task list ---------- */
 let pending = [];
 async function load() {
   try {
+    if(!NATIVE)try{await flushDrafts();}catch(e){notice("Draft sync: "+e.message);}
     const j = await api("list");
+    if(!NATIVE){const s=await offlineState();if(s?.enabled){s.snapshot={pending:j.pending,done:j.done,at:new Date().toISOString()};offlineWrite(s);}}
     pending = j.pending;
     if (NATIVE) { try { Android.syncTasks(JSON.stringify(j.pending.map((t) => ({ id: t.id, title: t.title, due_at: t.due_at || "" })))); } catch (e) {} }
     render(j.pending, j.done);
     $("sub").textContent = `${j.pending.length} pending`;
     notice("");
-  } catch (e) { notice(e.message); }
+  } catch (e) {
+    const s=!NATIVE&&!navigator.onLine?await offlineState():null;
+    if(s?.enabled){
+      const snap=s.snapshot||{pending:[],done:[]};const root=$("lists");root.replaceChildren();
+      root.append(el("div",{className:"meta",textContent:"Offline • saved tasks are read-only • "+(snap.at?fmt(snap.at):"no previous snapshot")}));
+      for(const t of [...snap.pending,...snap.done])root.append(el("div",{className:"card",textContent:t.title+" · "+(t.status==="done"?"Done":fmt(t.due_at))}));
+      for(const t of s.drafts)root.append(el("div",{className:"card",textContent:"Waiting to sync: "+t.title+" · "+fmt(t.due_at)}));
+      $("sub").textContent="Offline · "+s.drafts.length+" drafts";
+    }else notice(e.message);
+  }
 }
 function taskCard(t, isDone) {
   const late = !isDone && t.due_at && new Date(t.due_at) < new Date();
@@ -108,7 +147,12 @@ function render(p, d) {
 $("addBtn").onclick = async () => {
   const title = $("newTitle").value.trim(); if (!title) return;
   const due = $("newDue").value;
-  try { await api("add", { title, due_at: due ? new Date(due).toISOString() : null }); $("newTitle").value = ""; $("newDue").value = ""; } catch (e) { notice(e.message); }
+  try {
+    const due_at=due?new Date(due).toISOString():null;
+    if(!NATIVE&&!navigator.onLine){await saveOfflineDraft(title,due_at);}
+    else{await api("add",{title,due_at});}
+    $("newTitle").value="";$("newDue").value="";
+  }catch(e){notice(e.message);return;}
   load();
 };
 
@@ -151,7 +195,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js?v=20261127a");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261127c");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -684,6 +728,17 @@ function makeFridayTools(){
   for(const d of r.devices||[]){const row=el("div",{className:"li"});row.append(el("div",{textContent:d.provider+" • "+d.id.slice(0,10)}),action("Revoke alerts",async()=>{if(!confirm("Stop push notifications for this subscription? This does not revoke login."))return;await personalApi({action:"revoke_device",id:d.id});row.remove();}));output.append(row);}
   output.append(el("div",{className:"meta",textContent:"Push subscriptions only; not authenticated device sessions."}));
  }));
+ if(!NATIVE)controls.append(action("Offline drafts",async()=>{
+  const owner=await offlineOwner();if(!owner)throw Error("Pair first");
+  const s=await offlineState();output.replaceChildren(el("div",{textContent:"Offline storage keeps a copy of task titles and drafts on this device. Only enable on a trusted device. Reminders need a network connection."}));
+  output.append(el("div",{className:"meta",textContent:(s?.enabled?"Enabled":"Disabled")+" · "+(s?.drafts?.length||0)+" unsynced drafts"}));
+  output.append(action(s?.enabled?"Disable and clear local data":"Enable offline drafts",async()=>{
+    if(s?.enabled){if(!confirm("Clear cached tasks and unsynced drafts on this device?"))return;localStorage.removeItem(offlineKey);}
+    else if(!offlineWrite({owner,enabled:true,drafts:[],snapshot:null}))throw Error("Storage unavailable");
+    output.replaceChildren(el("div",{textContent:s?.enabled?"Local data cleared":"Offline drafts enabled"}));await load();
+  }));
+  output.append(action("Sync now",async()=>{await flushDrafts();await load();output.replaceChildren(el("div",{textContent:"Sync attempted. Check task list."}));}));
+ }));
  controls.append(action("Decision assistant",async()=>{
   output.replaceChildren(el("div",{textContent:"Ask Friday to compare options using verified records. It cannot approve payments or change Expert One."}),el("button",{textContent:"Talk to Friday",onclick:()=>openIncoming()}));
  }));
@@ -787,7 +842,7 @@ if ($("scanFile")) $("scanFile").onchange=async()=>{
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(); });
-  navigator.serviceWorker.register("sw.js?v=20261127a").catch(() => {});
+  navigator.serviceWorker.register("sw.js?v=20261127c").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
