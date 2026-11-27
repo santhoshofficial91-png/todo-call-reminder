@@ -14,27 +14,31 @@ self.addEventListener("push", (event) => {
     .replace("📞 மீண்டும்: ", "📞 Again: ")
     .replace("📞 நினைவூட்டல்: ", "📞 Reminder: ")
     .replace("இந்த வேலைக்கான நேரம் வந்துவிட்டது. தட்டிப் பேசுங்கள்.", "It's time for this task. Tap to talk.");
+  // Use a separate tag for each task; older servers without IDs get a unique tag.
+  const mode = (d && typeof d.mode === "string") ? d.mode : "hourly";
+  const taskId = d && typeof d.task_id === "string" && /^[a-zA-Z0-9_-]{1,80}$/.test(d.task_id) ? d.task_id : null;
+  const tag = mode === "task" ? (taskId ? "friday-task-" + taskId : "friday-task-" + crypto.randomUUID()) : "friday-" + mode;
   const title = en(d && d.title) || "📞 Reminder Call";
   const body = en(d && d.body) || "You have pending tasks. Tap to talk.";
   event.waitUntil(self.registration.showNotification(title, {
     body,
-    tag: "reminder-call",
+    tag,
     renotify: true,
     requireInteraction: true,
     vibrate: [400, 200, 400, 200, 400, 200, 400],
     icon: "icon-192.png",
     badge: "icon-192.png",
-    data: { url: "./?call=1", mode: (d && d.mode) || "hourly" },
+    data: { url: "./?call=1", mode, taskId },
   }));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || "./?call=1";
+  const url = new URL("./?call=1", self.registration.scope).href;
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
     for (const c of all) {
-      if ("focus" in c) {
+      if ("focus" in c && c.url.startsWith(self.registration.scope)) {
         await c.focus();
         c.postMessage({ type: "incoming-call" });
         return;
