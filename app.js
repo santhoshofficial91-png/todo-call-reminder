@@ -195,7 +195,7 @@ $("enable").onclick = async () => {
     if (!("serviceWorker" in navigator) || !("PushManager" in window)) { updateEnableInfo(); return; }
     const perm = await Notification.requestPermission();
     if (perm !== "granted") { updateEnableInfo(); return; }
-    const reg = await navigator.serviceWorker.register("sw.js?v=20261127c");
+    const reg = await navigator.serviceWorker.register("sw.js?v=20261127d");
     await navigator.serviceWorker.ready;
     const { key } = await api("vapid_public");
     let sub = await reg.pushManager.getSubscription();
@@ -220,7 +220,7 @@ const TOOLS = [{
     { name: "maps_health", description: "Check whether the Google Maps traffic connection (Routes API key) works, and why not if it fails. Call it when the user asks whether traffic/maps is working, or how many traffic requests are used this month (usage.month_requests of usage.free_cap). Returns ok, code, message and fix.", parameters: { type: "OBJECT", properties: {} } },
     { name: "save_memory", description: "Save a fact, preference or commitment the user EXPLICITLY asked you to remember (for example 'remember this', 'ஞாபகம் வச்சுக்கோ'). Never save on your own. Never save passwords, PINs, OTPs, card numbers or keys.", parameters: { type: "OBJECT", properties: { content: { type: "STRING" }, title: { type: "STRING" } }, required: ["content"] } },
     { name: "add_voice_note", description: "Save a dictated note or meeting decision that the user asked you to note down.", parameters: { type: "OBJECT", properties: { content: { type: "STRING" }, title: { type: "STRING" } }, required: ["content"] } },
-    { name: "search_memory", description: "Search the user's saved memories and notes by keywords (exact words, not meaning). Use when the user asks what they told you to remember, or what was said earlier. If nothing matches, say you found nothing; never guess.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["query"] } },
+    { name: "search_memory", description: "Search the user's saved memories and notes by hybrid semantic and keyword search when available. Use when the user asks what they told you to remember, or what was said earlier. If nothing matches, say you found nothing; never guess.", parameters: { type: "OBJECT", properties: { query: { type: "STRING" }, limit: { type: "NUMBER" } }, required: ["query"] } },
     { name: "delete_memory", description: "Delete one saved memory or note by id (from search_memory). Only after the user clearly confirms the deletion.", parameters: { type: "OBJECT", properties: { id: { type: "STRING" } }, required: ["id"] } },
     { name: "add_recurring_task", description: "Create a repeating task. recurrence: daily, weekly or monthly. weekly needs weekday (0=Sunday..6=Saturday). monthly needs day_of_month (1-31; short months use the last day). time is HH:MM in IST (default 09:00). First read the details back to the user and call this only after they agree.", parameters: { type: "OBJECT", properties: { title: { type: "STRING" }, recurrence: { type: "STRING", enum: ["daily", "weekly", "monthly"] }, weekday: { type: "NUMBER" }, day_of_month: { type: "NUMBER" }, time: { type: "STRING" } }, required: ["title", "recurrence"] } },
     { name: "list_recurring_tasks", description: "List the user's repeating tasks with ids and next due time.", parameters: { type: "OBJECT", properties: {} } },
@@ -293,8 +293,10 @@ function addCap(kind, text) {
   caps.scrollTop = caps.scrollHeight;
 }
 
-function openIncoming() {
+let webReminderTask = null;
+function openIncoming(taskId) {
   if (call) return;
+  webReminderTask = !NATIVE && typeof taskId==="string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId) ? taskId : null;
   $("call").classList.remove("hidden");
   $("call").classList.add("ring");
   $("incoming").classList.remove("hidden");
@@ -315,7 +317,14 @@ async function answerCall() {
   $("cstate").textContent = "Connecting…";
   const s = (call = { ws: null, mic: null, actx: null, node: null, sources: new Set(), nextT: 0, muted: false, gotOut: false, ended: false, wake: null });
   try {
+    const selected=webReminderTask;webReminderTask=null;
+    if(selected)await api("set_last_call",{mode:"task",ids:[selected]});
     const [tok, ctx] = await Promise.all([api("live_token"), api("call_context")]);
+    if(selected){
+      ctx.pending=(ctx.pending||[]).filter(t=>t.id===selected);
+      ctx.mode="task";
+      if(!ctx.pending.length)throw Error("This reminder is no longer pending");
+    }
     s.mode = window.__forceMode || ctx.mode;
     window.__forceMode = null;
     s.tasks = ctx.pending;
@@ -841,8 +850,8 @@ if ($("scanFile")) $("scanFile").onchange=async()=>{
 };
 /* ---------- boot ---------- */
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(); });
-  navigator.serviceWorker.register("sw.js?v=20261127c").catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.type === "incoming-call") openIncoming(e.data.taskId); });
+  navigator.serviceWorker.register("sw.js?v=20261127d").catch(() => {});
 }
 (async function init() {
   if (!getToken()) { showPair(); return; }
@@ -859,6 +868,6 @@ if ("serviceWorker" in navigator) {
     else { try { await api("set_last_call", { mode: qp.get("mode") || "task", ids }); } catch (e) {} }
     openIncoming();
     answerCall();
-  } else if (qp.get("call") === "1") openIncoming();
+  } else if (qp.get("call") === "1") {openIncoming(qp.get("task"));history.replaceState(null,"",location.pathname); }
   setInterval(() => { if (!call) load(); }, 60000);
 })();
