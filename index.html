@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#0b1020">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="manifest" href="manifest.webmanifest">
@@ -76,18 +76,60 @@
   .lbl{font-size:12px;opacity:.8;margin-top:6px}
   .cbtn.spk-off{opacity:.45}
   .cbtn.spk-on{background:#16a34a;opacity:1;box-shadow:0 0 0 4px rgba(255,255,255,.55)}
+
+  /* Friday Aurora — responsive, high-contrast shared PWA theme */
+  :root{color-scheme:dark;--bg:#0b1020;--card:#161f35;--ink:#f4f7ff;--mute:#acb9d0;--line:#34435e;--accent:#5865e8;--ok:#47d9b2;--bad:#ff8c9c}
+  body{background:radial-gradient(ellipse at 12% 0%,#2d2559 0%,transparent 42%),radial-gradient(ellipse at 100% 25%,#124153 0%,transparent 40%),#0b1020;background-attachment:fixed}
+  .wrap{max-width:600px;padding:calc(20px + env(safe-area-inset-top)) 18px calc(42px + env(safe-area-inset-bottom))}
+  .brand{display:flex;align-items:center;gap:13px;margin:8px 0 22px}
+  .brand-mark{width:52px;height:52px;flex:none;display:grid;place-items:center;border-radius:18px;background:linear-gradient(140deg,#7254e9,#37a7d8);box-shadow:0 8px 28px #6c58eb55;color:white;font-weight:850;font-size:27px;letter-spacing:-2px}
+  .brand h1{font-size:27px;font-weight:850;letter-spacing:.12em;line-height:1.1;margin:0}
+  .brand-kicker{font-size:10px;letter-spacing:.18em;color:#a6b9ea;font-weight:700;margin:5px 0}
+  .brand .sub{margin:0;color:#c3d2e9}
+  .tabs{padding:5px;background:#111a30;border:1px solid #34435e;border-radius:18px;gap:4px;margin-bottom:18px}
+  .tabs button{font-weight:650;border:0;border-radius:13px;min-height:44px;color:#aebdd5}
+  .tabs button.on{background:linear-gradient(115deg,#6554df,#4058c2);box-shadow:0 3px 14px #5a54d344;color:#fff}
+  .card,.grp{background:linear-gradient(150deg,#1b2842,#141c30);border:1px solid #34435e;border-radius:20px;padding:16px;margin-bottom:14px;box-shadow:0 8px 24px #05081530}
+  .hero-card{position:relative;overflow:hidden;background:radial-gradient(circle at 90% 5%,#6e57db77,transparent 55%),linear-gradient(140deg,#263467,#172e45);padding:20px;border-color:#6575b0}
+  .hero-kicker{font-size:11px;font-weight:750;letter-spacing:.14em;color:#c3ccff}
+  .hero-title{font-size:23px;font-weight:800;letter-spacing:-.04em;margin:4px 0}
+  .hero-copy{font-size:13px;color:#c4d6ea;margin-bottom:10px}
+  button{min-height:43px;border-radius:13px;font-weight:700;background:linear-gradient(115deg,#6654d8,#4059bd);box-shadow:0 4px 12px #080c2426}
+  button.big{min-height:55px;background:linear-gradient(105deg,#6454d7,#395fc4);color:#fff;font-size:18px}
+  button.ghost{background:#202c47;border-color:#3a4b6b;color:#e3eaff;box-shadow:none}
+  button.sm{min-height:34px}
+  button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid #75dfed;outline-offset:2px}
+  input:not([type=checkbox]),select,textarea{font:inherit;color:var(--ink);background:#0f172a;border:1px solid #3d4b68;border-radius:12px;max-width:100%;min-width:0;padding:10px}
+  input[type=checkbox]{accent-color:#7868f2}
+  .sec{font-size:11px;letter-spacing:.13em;font-weight:750;color:#aabbe0;margin:20px 2px 9px}
+  .task{border-left:3px solid #8276ed}.task.late{border-left-color:#ff8295}.title{font-size:15px;font-weight:700}
+  .meta{line-height:1.5}.grp h3{font-size:15px;gap:8px;flex-wrap:wrap;margin-bottom:12px;color:#e6edff}
+  .tile{padding:13px 11px;border-radius:15px;background:#202c45;border-color:#394966;min-width:0}
+  .tile .v{font-size:24px;letter-spacing:-.045em;color:#d6caff;overflow-wrap:anywhere}
+  .tile:nth-child(2n) .v{color:#78e4df}.tile.warn .v{color:var(--bad)}.tile.good .v{color:var(--ok)}
+  .tile .l{margin-top:5px;line-height:1.3;color:#b4c3db}
+  .qa{gap:9px}.qa button{min-height:48px;font-size:13px;white-space:normal;overflow-wrap:anywhere}
+  [data-friday-tools] .qa button{background:#25294b;border-color:#535582;color:#e3dfff}
+  [data-friday-tools] .qa button:nth-child(3n+2){background:#173b48;border-color:#3b6570;color:#b8f2ed}
+  [data-friday-tools] .qa button:nth-child(3n){background:#40304a;border-color:#6a4d6e;color:#ffe0f2}
+  #call{background:radial-gradient(ellipse at 50% 15%,#52438e 0%,#142a48 38%,#0b1020 75%);overflow-y:auto;gap:12px}
+  .avatar{background:linear-gradient(140deg,#7059dc,#287eab);border:2px solid #aaa2fa;box-shadow:0 0 40px #8179ed55}
+  .cbtn.green{background:#167e66}.cbtn.red{background:#c33a5d}.caps{background:#0d172b88;border:1px solid #536180;border-radius:18px;padding:14px}
+  #writtenPanel textarea{resize:vertical}
+  @media(max-width:360px){.wrap{padding-left:12px;padding-right:12px}.brand h1{font-size:24px}.tile .v{font-size:21px}.btns{gap:16px}}
+  @media(prefers-reduced-motion:reduce){.ring .avatar{animation:none}}
+
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Friday 📞</h1>
-  <div class="sub" id="sub"></div>
+  <header class="brand"><div class="brand-mark" aria-hidden="true">F.</div><div><h1>FRIDAY</h1><div class="brand-kicker">PERSONAL AI ASSISTANT</div><div class="sub" id="sub"></div></div></header>
   <div id="notice"></div>
 
   <!-- pairing -->
   <div class="card grid hidden" id="pair">
     <div><b>First-time setup</b></div>
-    <div class="meta">Enter the pairing code Claude gave you.</div>
+    <div class="meta">Enter your Friday pairing code.</div>
     <input type="text" id="code" placeholder="Pairing code" autocapitalize="off" autocomplete="off">
     <button id="pairBtn">Pair</button>
   </div>
@@ -99,7 +141,7 @@
       <button id="tabBtnLife">Life</button>
     </div>
     <div id="tab-tasks">
-    <div class="card grid">
+    <div class="card grid hero-card"><div class="hero-kicker">VOICE ASSISTANT</div><div class="hero-title">Your day, in sync.</div><div class="hero-copy">Tasks, reminders and intelligence — just a conversation away.</div>
       <button class="big" id="talk">📞 Call Friday</button>
       <button class="ghost" id="enable">🔔 Enable alerts (notifications)</button>
       <div class="meta" id="enableInfo"></div>
