@@ -1,5 +1,6 @@
 import SwiftUI
 import AlarmKit
+import UserNotifications
 
 struct FridayAlarmMetadata: AlarmMetadata, Codable, Hashable, Sendable {}
 
@@ -12,6 +13,8 @@ struct FridayHome: View {
     @State private var reminder = "Friday test reminder"
     @State private var status = "No alarm scheduled."
     @State private var busy = false
+    @State private var permission = "Not checked"
+    @State private var fallback = true
     @AppStorage("friday.lastAlarmID") private var lastID = ""
 
     var body: some View {
@@ -19,10 +22,21 @@ struct FridayHome: View {
             Form {
                 Section {
                     Text("FRIDAY").font(.largeTitle.bold()).foregroundStyle(.cyan)
-                    Text("iPhone • AlarmKit test edition").foregroundStyle(.secondary)
+                    Text("iPhone • AlarmKit test edition v0.2").foregroundStyle(.secondary)
                     Text("Local alarms only. No production database changes.")
                         .font(.footnote)
                 }
+                Section("Alarm diagnostics") {
+                    Text("Authorization: " + permission)
+                    Text("Usage description: " + ((Bundle.main.object(forInfoDictionaryKey: "NSAlarmKitUsageDescription") as? String)?.isEmpty == false ? "Present" : "MISSING"))
+                    Button("Enable Alarm Permission") { Task { @MainActor in
+                        do { let result = try await AlarmManager.shared.requestAuthorization(); permission = String(describing: result) }
+                        catch { status = details(error, stage: "Authorization") }
+                    } }
+                    Button("Check Alarm Status") { permission = String(describing: AlarmManager.shared.authorizationState) }
+                    Toggle("Notification fallback", isOn: $fallback)
+                    Button("Test notification in 30 seconds") { Task { @MainActor in await notify(after: 30) } }
+                }.disabled(busy)
                 Section("Reminder") {
                     TextField("Reminder label", text: $reminder)
                     DatePicker("Time", selection: $due, in: Date()...)
@@ -30,6 +44,10 @@ struct FridayHome: View {
                     Button("Test ring in 30 seconds") {
                         reminder = "Friday test reminder"
                         schedule(at: Date().addingTimeInterval(30))
+                    }
+                    Button("Cancel pending notification", role: .destructive) {
+                        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["friday-test-fallback"])
+                        status = "Pending notification cancelled."
                     }
                     Button("Cancel last alarm", role: .destructive) {
                         guard let id = UUID(uuidString: lastID) else { return }
@@ -53,16 +71,20 @@ struct FridayHome: View {
         busy = true
         Task { @MainActor in
             defer { busy = false }
+            var stage = "Authorization"
+            let delay = date.timeIntervalSinceNow
             do {
                 let auth = try await AlarmManager.shared.requestAuthorization()
-                guard auth == .authorized else { status = "Alarm permission not granted."; return }
+                permission = String(describing: auth)
+                guard auth == .authorized else { status = "Alarm permission not granted."; if fallback { await notify(after: delay, prefix: status) }; return }
+                stage = "Scheduling"
                 let id = UUID()
                 let label = reminder.trimmingCharacters(in: .whitespacesAndNewlines)
                 let title = LocalizedStringResource(stringLiteral: String((label.isEmpty ? "Friday reminder" : label).prefix(80)))
                 let stop = AlarmButton(text: "Stop", textColor: .white, systemImageName: "stop.circle")
                 let alert = AlarmPresentation.Alert(title: title, stopButton: stop)
                 let attributes = AlarmAttributes(presentation: AlarmPresentation(alert: alert), metadata: FridayAlarmMetadata(), tintColor: .cyan)
-                let config = AlarmManager.AlarmConfiguration.alarm(schedule: .fixed(date), attributes: attributes, sound: .default)
+                let config = AlarmManager.AlarmConfiguration.alarm(schedule: .fixed(max(date, Date().addingTimeInterval(5))), attributes: attributes, sound: .default)
                 _ = try await AlarmManager.shared.schedule(id: id, configuration: config)
                 if let previous = UUID(uuidString: lastID) {
                     do { try AlarmManager.shared.cancel(id: previous) }
@@ -70,7 +92,32 @@ struct FridayHome: View {
                 }
                 lastID = id.uuidString
                 status = "Alarm scheduled for " + date.formatted(date: .abbreviated, time: .standard)
-            } catch { status = "Could not schedule: " + error.localizedDescription }
+            } catch {
+                status = details(error, stage: stage)
+                if fallback { await notify(after: delay, prefix: status) }
+            }
         }
+    }
+    private func details(_ error: Error, stage: String) -> String {
+        let ns = error as NSError
+        return "\(stage): \(ns.domain) code \(ns.code) • \(String(reflecting: error)) • iOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
+    }
+
+    @MainActor private func notify(after delay: TimeInterval, prefix: String = "") async {
+        do {
+            let center = UNUserNotificationCenter.current()
+            guard try await center.requestAuthorization(options: [.alert, .sound, .badge]) else {
+                status = prefix + "\nNotification permission denied."
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = "Friday reminder"
+            content.body = reminder
+            content.sound = .default
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(5, delay), repeats: false)
+            center.removePendingNotificationRequests(withIdentifiers: ["friday-test-fallback"])
+            try await center.add(UNNotificationRequest(identifier: "friday-test-fallback", content: content, trigger: trigger))
+            status = prefix + "\nStandard notification scheduled. Lock screen to test; this is not a full-screen alarm."
+        } catch { status = prefix + "\n" + details(error, stage: "Notification") }
     }
 }
